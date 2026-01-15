@@ -2,10 +2,10 @@
 
 export type PresaleSnapshot = {
   currentRound: number;
-  soldTotalNano: bigint;
-  soldInRoundNano: bigint;
-  totalRaisedNano: bigint;
-  claimableNano: bigint;
+  soldTotalNano: bigint;     // totalSoldNano() from Presale
+  soldInRoundNano: bigint;   // currentRoundSoldNano() from Presale
+  totalRaisedNano: bigint;   // totalRaisedNano() from Presale
+  claimableNano: bigint;     // we will use this as "Your MAGT" jetton balance (wallet)
 };
 
 /**
@@ -42,7 +42,6 @@ export function getRoundPriceTon(round: number): number {
 /**
  * Backward compatible helper.
  * Якщо десь у UI ще використовується priceUsd(), поки повертаємо TON price.
- * (Пізніше, якщо треба, зробимо окремо USD-ціни.)
  */
 export function priceUsd(round: number): number {
   return getRoundPriceTon(round);
@@ -56,16 +55,194 @@ export function fromNano(n: bigint): number {
   return Number(i) + Number(f) / 1e9;
 }
 
-// Заглушка: поки без ончейну (щоб проект піднявся)
-export async function getPresaleSnapshot(_: {
+/* =========================
+   On-chain helpers (TonAPI)
+   ========================= */
+
+type TonNetwork = "testnet" | "mainnet";
+
+function getNetwork(): TonNetwork {
+  const v = (import.meta as any)?.env?.VITE_TON_NETWORK;
+  return v === "mainnet" ? "mainnet" : "testnet";
+}
+
+function tonApiBase(network: TonNetwork): string {
+  // TonAPI endpoints:
+  // mainnet: https://tonapi.io
+  // testnet: https://testnet.tonapi.io
+  return network === "mainnet" ? "https://tonapi.io" : "https://testnet.tonapi.io";
+}
+
+function normalizeAddr(a: string): string {
+  return (a || "").trim();
+}
+
+function asBigIntFromTonApiStackItem(item: any): bigint {
+  // TonAPI method response stack items обычно в формате:
+  // { type: "num" | "int" | "cell" | "slice", value: "0x..." or "123" }
+  // Sometimes can be: ["num","0x..."] depending on proxy.
+  if (item == null) throw new Error("Empty stack item");
+
+  // array format: ["num","0x123"]
+  if (Array.isArray(item) && item.length >= 2) {
+    const v = item[1];
+    if (typeof v === "string") {
+      if (v.startsWith("0x") || v.startsWith("0X")) return BigInt(v);
+      if (/^-?\d+$/.test(v)) return BigInt(v);
+    }
+  }
+
+  // object format: { type, value }
+  if (typeof item === "object") {
+    const v = (item as any).value;
+    if (typeof v === "string") {
+      if (v.startsWith("0x") || v.startsWith("0X")) return BigInt(v);
+      if (/^-?\d+$/.test(v)) return BigInt(v);
+    }
+    // sometimes value can be nested { ... }
+    if (typeof v === "number") return BigInt(v);
+  }
+
+  throw new Error("Unsupported stack int format: " + JSON.stringify(item));
+}
+
+function asIntFromTonApiStackFirst(res: any): bigint {
+  // TonAPI response usually:
+  // { success: true, stack: [ {type:"num", value:"0x.."}, ... ] }
+  const stack = res?.stack;
+  if (!Array.isArray(stack) || stack.length === 0) throw new Error("No stack in response");
+  return asBigIntFromTonApiStackItem(stack[0]);
+}
+
+async function tonApiGetMethod(args: {
+  network: TonNetwork;
+  account: string;
+  method: string;
+}): Promise<any> {
+  const base = tonApiBase(args.network);
+  const url = `${base}/v2/blockchain/accounts/${encodeURIComponent(args.account)}/methods/${encodeURIComponent(args.method)}`;
+  const r = await fetch(url, { method: "GET" });
+  if (!r.ok) {
+    const t = await r.text().catch(() => "");
+    throw new Error(`TonAPI method failed ${r.status}: ${t || r.statusText}`);
+  }
+  return r.json();
+}
+
+async function tonApiGetJettons(args: { network: TonNetwork; account: string }): Promise<any> {
+  const base = tonApiBase(args.network);
+  const url = `${base}/v2/accounts/${encodeURIComponent(args.account)}/jettons`;
+  const r = await fetch(url, { method: "GET" });
+  if (!r.ok) {
+    const t = await r.text().catch(() => "");
+    throw new Error(`TonAPI jettons failed ${r.status}: ${t || r.statusText}`);
+  }
+  return r.json();
+}
+
+function stackAddressToString(stackItem: any): string {
+  // TonAPI for address getter can return:
+  // stack[0] as { type:"slice", value:"..." } (slice with address)
+  // BUT TonAPI often also provides "decoded" field with addr string.
+  // We'll try decoded first; else fallback to searching in response.
+  if (typeof stackItem === "string") return stackItem;
+
+  // array format:
+  if (Array.isArray(stackItem) && typeof stackItem[1] === "string") return stackItem[1];
+
+  if (typeof stackItem === "object" && typeof (stackItem as any).value === "string") {
+    // sometimes already human-readable
+    return (stackItem as any).value;
+  }
+  return "";
+}
+
+/**
+ * ✅ "Presale way": read snapshot from chain.
+ *
+ * - currentRound: Presale.currentRound()
+ * - soldTotalNano: Presale.totalSoldNano()
+ * - soldInRoundNano: Presale.currentRoundSoldNano()
+ * - totalRaisedNano: Presale.totalRaisedNano()
+ * - claimableNano: we set as wallet's MAGT jetton balance ("Your MAGT")
+ */
+export async function getPresaleSnapshot(input: {
   presaleAddress: string;
   walletAddress?: string;
 }): Promise<PresaleSnapshot> {
+  const network = getNetwork();
+  const presale = normalizeAddr(input.presaleAddress);
+  const wallet = input.walletAddress ? normalizeAddr(input.walletAddress) : undefined;
+
+  if (!presale) {
+    return {
+      currentRound: 0,
+      soldTotalNano: 0n,
+      soldInRoundNano: 0n,
+      totalRaisedNano: 0n,
+      claimableNano: 0n,
+    };
+  }
+
+  // 1) Read basic presale stats
+  const [roundRes, soldRes, roundSoldRes, raisedRes] = await Promise.all([
+    tonApiGetMethod({ network, account: presale, method: "currentRound" }),
+    tonApiGetMethod({ network, account: presale, method: "totalSoldNano" }),
+    tonApiGetMethod({ network, account: presale, method: "currentRoundSoldNano" }),
+    tonApiGetMethod({ network, account: presale, method: "totalRaisedNano" }),
+  ]);
+
+  const currentRound = Number(asIntFromTonApiStackFirst(roundRes));
+  const soldTotalNano = asIntFromTonApiStackFirst(soldRes);
+  const soldInRoundNano = asIntFromTonApiStackFirst(roundSoldRes);
+  const totalRaisedNano = asIntFromTonApiStackFirst(raisedRes);
+
+  // 2) "Your MAGT" — wallet jetton balance
+  // We need jetton minter address from presale
+  let yourMagtNano = 0n;
+
+  if (wallet) {
+    try {
+      const minterRes = await tonApiGetMethod({ network, account: presale, method: "jettonMinterAddr" });
+
+      // TonAPI often provides decoded output; try a few places
+      const decoded = (minterRes as any)?.decoded;
+      let jettonMinter = "";
+      if (typeof decoded === "string" && decoded.length > 0) {
+        jettonMinter = decoded;
+      } else {
+        const st = (minterRes as any)?.stack;
+        if (Array.isArray(st) && st[0]) {
+          jettonMinter = stackAddressToString(st[0]);
+        }
+      }
+
+      jettonMinter = normalizeAddr(jettonMinter);
+
+      if (jettonMinter) {
+        const jettons = await tonApiGetJettons({ network, account: wallet });
+
+        // TonAPI: { balances: [ { balance:"123", jetton:{ address:"..." } } ] }
+        const balances: any[] = Array.isArray(jettons?.balances) ? jettons.balances : [];
+        const found = balances.find((b) => normalizeAddr(b?.jetton?.address) === jettonMinter);
+
+        if (found?.balance != null) {
+          // balance is string integer in nano-jettons (1e9 decimals)
+          const s = String(found.balance);
+          if (/^\d+$/.test(s)) yourMagtNano = BigInt(s);
+        }
+      }
+    } catch {
+      // If TonAPI token endpoint fails, don't break whole snapshot.
+      yourMagtNano = 0n;
+    }
+  }
+
   return {
-    currentRound: 0,
-    soldTotalNano: 0n,
-    soldInRoundNano: 0n,
-    totalRaisedNano: 0n,
-    claimableNano: 0n,
+    currentRound: Number.isFinite(currentRound) ? currentRound : 0,
+    soldTotalNano,
+    soldInRoundNano,
+    totalRaisedNano,
+    claimableNano: yourMagtNano,
   };
 }
