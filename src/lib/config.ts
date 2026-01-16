@@ -1,21 +1,44 @@
 // src/lib/config.ts
 
 /**
- * TON Connect manifest
- * Для testnet можна залишити той самий,
- * головне щоб manifest був доступний по HTTPS
+ * ✅ Network selector
+ * - Production domain (magtcoin.com) -> mainnet
+ * - Everything else (Netlify previews, localhost) -> testnet
+ * - You can force via query param: ?network=testnet|mainnet
  */
-export const TONCONNECT_MANIFEST_URL =
-  "https://magtcoin.com/tonconnect-manifest.json";
+function detectNetwork(): "testnet" | "mainnet" {
+  const params = new URLSearchParams(window.location.search);
+  const forced = params.get("network");
+  if (forced === "testnet" || forced === "mainnet") return forced;
+
+  const host = window.location.hostname.toLowerCase();
+  const isProdDomain = host === "magtcoin.com" || host === "www.magtcoin.com";
+  return isProdDomain ? "mainnet" : "testnet";
+}
+
+export const NETWORK = detectNetwork();
+export const IS_TESTNET = NETWORK === "testnet";
 
 /**
- * Presale contract address (TESTNET)
- * Задеплоєний і перевірений через blueprint
+ * ✅ TonConnect manifest MUST be served from the same domain as your frontend
+ * (Netlify / localhost / magtcoin.com)
  */
-export const PRESALE_CONTRACT =
-  "EQCE9yKrcWUjhqg9b-b5RFpcYtDwUHnniH9j1QQEWks4zwUE";
+export const TONCONNECT_MANIFEST_URL = `${window.location.origin}/tonconnect-manifest.json`;
+
+/** ✅ TonAPI base */
+export const TONAPI_BASE = IS_TESTNET
+  ? "https://testnet.tonapi.io"
+  : "https://tonapi.io";
 
 /**
- * Network flag (зручно для UI / логіки)
+ * ✅ Contracts (addresses)
+ * Change ONLY these when you redeploy.
+ * Keep testnet addresses here, mainnet addresses for production domain.
  */
-export const IS_TESTNET = true;
+export const PRESALE_CONTRACT = IS_TESTNET
+  ? "EQCE9yKrcWUjhqg9b-b5RFpcYtDwUHnniH9j1QQEWks4zwUE"
+  : "EQB5YKJxw9D_FFLzHHg4yXlbaSWlmy9p4d2Akk3TsnlYxx94";
+
+export const JETTON_MASTER = IS_TESTNET
+  ? "EQBxf0WPlKLvrQtgqawLe_vHsxfJ4GdNJbGvwVXPmpUIdOlx"
+  : "EQDxQWrZz7vI1EqVvtDv1sFLmvK1hNpxrQpvMXhjBasUSXjx";

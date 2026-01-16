@@ -88,7 +88,9 @@ export function PresaleWidget({ lang }: { lang: LangCode }) {
 
     try {
       await tonConnectUI.sendTransaction({
-        validUntil: nowPlus(5),
+        // На телефоні підтвердження може зайняти >5 секунд,
+        // тому даємо запас (10 хв), щоб не було "вічної загрузки" / expire.
+        validUntil: nowPlus(10 * 60),
         messages: [
           {
             address: PRESALE_CONTRACT,
