@@ -25,20 +25,20 @@ function bytesToBase64(bytes: Uint8Array) {
 function buildBuyPayloadBase64(refAddr: Address): string {
   const BUY_OPCODE = 0x42555901;
 
-  const cell = beginCell()
-    .storeUint(BUY_OPCODE, 32)
-    .storeAddress(refAddr)
-    .endCell();
-
+  const cell = beginCell().storeUint(BUY_OPCODE, 32).storeAddress(refAddr).endCell();
   return bytesToBase64(cell.toBoc({ idx: false }));
 }
 
-function getRefAddressOrSelf(selfAddr: Address): Address {
+/**
+ * Повертає ref адресу з URL, або null якщо ref нема/невалідний.
+ */
+function getRefAddressFromUrl(): Address | null {
   try {
     const ref = new URLSearchParams(window.location.search).get("ref");
-    return ref ? Address.parse(ref) : selfAddr;
+    if (!ref) return null;
+    return Address.parse(ref);
   } catch {
-    return selfAddr;
+    return null;
   }
 }
 
@@ -65,11 +65,27 @@ export function PresaleWidget({ lang }: { lang: LangCode }) {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
 
+  /**
+   * ✅ ВАЖЛИВО (як у scripts/buy.ts):
+   * - якщо ref НЕ заданий або ref == buyer -> payload НЕ відправляємо (plain TON / receive()).
+   * - якщо ref заданий і ref != buyer -> відправляємо BUY payload.
+   *
+   * Це прибирає bounce на сайті, якщо контракт не приймає Buy(ref=self).
+   */
   const buyPayload = useMemo(() => {
     try {
       if (!addr) return undefined;
+
       const self = Address.parse(addr);
-      const refAddr = getRefAddressOrSelf(self);
+      const refAddr = getRefAddressFromUrl();
+
+      // нема ref -> plain TON
+      if (!refAddr) return undefined;
+
+      // ref == self -> plain TON (щоб не було саморефа)
+      if (refAddr.equals(self)) return undefined;
+
+      // є валідний ref і він не self -> payload
       return buildBuyPayloadBase64(refAddr);
     } catch {
       return undefined;
@@ -81,23 +97,26 @@ export function PresaleWidget({ lang }: { lang: LangCode }) {
 
     const ton = toNumberSafe(tonAmount);
     if (ton <= 0) return setMsg(t(lang, "presale_widget__11"));
-    if (!buyPayload) return setMsg(t(lang, "presale_widget__12"));
 
     setLoading(true);
     setMsg("");
 
     try {
+      const message: any = {
+        address: PRESALE_CONTRACT,
+        amount: toNanoTon(ton),
+      };
+
+      // payload додаємо тільки якщо він реально потрібен (є валідний ref != self)
+      if (buyPayload) {
+        message.payload = buyPayload;
+      }
+
       await tonConnectUI.sendTransaction({
         // На телефоні підтвердження може зайняти >5 секунд,
         // тому даємо запас (10 хв), щоб не було "вічної загрузки" / expire.
         validUntil: nowPlus(10 * 60),
-        messages: [
-          {
-            address: PRESALE_CONTRACT,
-            amount: toNanoTon(ton),
-            payload: buyPayload,
-          },
-        ],
+        messages: [message],
       });
 
       setMsg(t(lang, "presale_widget__13"));
@@ -111,15 +130,13 @@ export function PresaleWidget({ lang }: { lang: LangCode }) {
   return (
     <Card>
       <div className="text-lg font-semibold">{t(lang, "presale_widget__1")}</div>
-      <div className="mt-1 text-sm text-zinc-400">
-        {t(lang, "presale_widget__2")}
-      </div>
+      <div className="mt-1 text-sm text-zinc-400">{t(lang, "presale_widget__2")}</div>
 
       <div className="mt-5 rounded-2xl border border-white/10 bg-black/40 p-4 backdrop-blur-md">
         <div className="flex items-center justify-between text-sm font-semibold">
           <span>{t(lang, "presale_widget__3")}</span>
           <span className="text-[11px] text-zinc-400">
-            {t(lang, "presale_widget__4")} {buyPayload ? "✅" : "—"}
+            {t(lang, "presale_widget__4")} {buyPayload ? "✅ REF payload" : "— plain TON"}
           </span>
         </div>
 
