@@ -16,8 +16,8 @@ import { useLang } from "../components/LangSwitcher";
 import { ProjectsSection } from "../components/ProjectsSection";
 import { Card } from "../components/Card";
 
-import { useTonAddress } from "@tonconnect/ui-react";
-import { Address } from "@ton/core";
+import { useTonAddress, useTonConnectUI } from "@tonconnect/ui-react";
+import { Address, beginCell } from "@ton/core";
 
 import bg from "../assets/bg.png";
 
@@ -29,12 +29,13 @@ import {
   priceUsd,
   ROUNDS_TOKENS,
 } from "../lib/presale";
+import { safeValidUntil, toNanoTon } from "../lib/ton";
 import { t } from "../lib/i18n";
 
 /* =====================================================
-   🔴 GLOBAL SWITCH FOR CLAIM BUTTON
+   ✅ CLAIM ENABLED
    ===================================================== */
-const CLAIM_ENABLED_GLOBALLY = false;
+const CLAIM_ENABLED_GLOBALLY = true;
 /* ===================================================== */
 
 const LS_REF_OWNER = "magt_ref_owner";
@@ -68,9 +69,35 @@ function readRefOwnerFromLSNorm(): string | null {
   }
 }
 
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+// Claim payload: "ICLAI" + query_id (uint64)
+function buildClaimPayloadBase64(): string {
+  const tag = "ICLAI";
+  const qid = BigInt(Date.now());
+
+  // @ton/core Builder.storeBuffer expects Node.js Buffer.
+  // In the browser (Vite/React), we store the ASCII bytes manually.
+  const b = beginCell();
+  for (let i = 0; i < tag.length; i++) {
+    b.storeUint(tag.charCodeAt(i) & 0xff, 8);
+  }
+  const cell = b.storeUint(qid, 64).endCell();
+
+  return bytesToBase64(cell.toBoc({ idx: false }));
+}
+
 export default function App() {
   const { lang, setLang } = useLang();
   const addr = useTonAddress();
+  const [tonConnectUI] = useTonConnectUI();
 
   const [snapshot, setSnapshot] = useState<PresaleSnapshot>({
     currentRound: 0,
@@ -80,6 +107,7 @@ export default function App() {
     claimableNano: 0n,
   });
 
+  const [refreshTick, setRefreshTick] = useState(0);
   const inFlightRef = useRef(false);
 
   const currentRound = snapshot.currentRound;
@@ -112,7 +140,6 @@ export default function App() {
     return false;
   }, [addr]);
 
-  // Referral MAGT (поки що логіка як була: якщо ти owner — показуємо claimable)
   const referralMagt = useMemo(
     () => (isReferralOwner ? claimableMagt : 0),
     [isReferralOwner, claimableMagt]
@@ -148,16 +175,42 @@ export default function App() {
     }
   };
 
+  // reload on connect + manual refreshTick
   useEffect(() => {
     reloadOnchain();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addr]);
+  }, [addr, refreshTick]);
 
-  const claimEnabled = CLAIM_ENABLED_GLOBALLY && false;
+  // polling (щоб прогрес/баланс підтягувались навіть якщо юзер нічого не тисне)
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setRefreshTick((x) => x + 1);
+    }, 15_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const claimEnabled = CLAIM_ENABLED_GLOBALLY && !!addr;
 
   const onClaimClick = async () => {
-    // claim буде ввімкнено після TGE
-    return;
+    if (!addr) return;
+
+    try {
+      await tonConnectUI.sendTransaction({
+        validUntil: safeValidUntil(5 * 60 - 10),
+        messages: [
+          {
+            address: PRESALE_CONTRACT,
+            amount: toNanoTon("0.35"),
+            payload: buildClaimPayloadBase64(),
+          },
+        ],
+      });
+
+      // після claim — оновити баланс/прогрес
+      setRefreshTick((x) => x + 1);
+    } catch {
+      // тихо
+    }
   };
 
   return (
@@ -176,114 +229,82 @@ export default function App() {
       <Header lang={lang} onLangChange={setLang} />
 
       <main className="mx-auto max-w-6xl px-4 py-10">
-        {/* ✅ Просто залишаємо місце під банер, без логотипів/текстів */}
         <div className="h-[260px] sm:h-[300px] md:h-[340px] lg:h-[380px]" />
 
-        {/* ✅ 2 БЛОКИ (як на старому сайті) */}
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-6 md:grid-cols-2">
           {/* Your MAGT */}
           <Card>
-            <div className="text-sm text-zinc-400">Your MAGT</div>
+            <div className="text-sm text-zinc-400">{t(lang, "app__your_magt")}</div>
+            <div className="mt-2 text-3xl font-semibold">{claimableMagt.toFixed(3)} MAGT</div>
 
-            <div className="mt-2 text-2xl font-semibold">
-              {Number.isFinite(claimableMagt) ? claimableMagt.toLocaleString() : "0"}{" "}
-              MAGT
-            </div>
-
-            <div className="mt-1 text-xs text-zinc-500">
-              Claim is disabled during presale.
-            </div>
-
-            {/* ✅ CLAIM КНОПКА ТУТ */}
             <button
-              onClick={onClaimClick}
               disabled={!claimEnabled}
-              className={[
-                "mt-4 h-11 w-full rounded-2xl px-5 text-sm font-semibold border border-white/10 bg-black/55",
-                "opacity-50 cursor-not-allowed",
-              ].join(" ")}
-              title="Claim will be enabled after TGE"
+              onClick={onClaimClick}
+              className="mt-4 h-10 w-full rounded-xl border border-white/10 bg-white/5
+                         text-sm font-semibold hover:bg-white/10 disabled:opacity-60"
+              title={!addr ? t(lang, "presale_widget__9") : undefined}
             >
-              {t(lang, "app__3")}
+              Claim
             </button>
+
+            <div className="mt-2 text-xs text-zinc-500">
+              Claim sends ~0.35 TON gas (testnet/mainnet depends on network).
+            </div>
           </Card>
 
           {/* Referral MAGT */}
           <Card>
-            <div className="text-sm text-zinc-400">Referral MAGT</div>
+            <div className="text-sm text-zinc-400">{t(lang, "app__referral_magt")}</div>
+            <div className="mt-2 text-3xl font-semibold">{referralMagt.toFixed(3)} MAGT</div>
 
-            <div className="mt-2 text-2xl font-semibold">
-              {Number.isFinite(referralMagt) ? referralMagt.toLocaleString() : "0"}{" "}
-              MAGT
-            </div>
-
-            <div className="mt-1 text-xs text-zinc-500">
-              Open your referral link (or press Copy referral link) and connect wallet
-            </div>
-
-            {/* ✅ COPY REFERRAL LINK КНОПКА ТУТ */}
             <div className="mt-4">
-              <ReferralButton lang={lang} address={addr} />
+              <ReferralButton lang={lang} />
             </div>
           </Card>
         </div>
 
-        {/* ✅ 3 БЛОКИ (Network / Ref / Token) */}
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Card>
-            <div className="text-sm text-zinc-400">Network</div>
-            <div className="mt-1 text-lg font-semibold">TON</div>
-          </Card>
-
-          <Card>
-            <div className="text-sm text-zinc-400">REF BONUS +5%</div>
-            <div className="mt-1 text-lg font-semibold">MAGT</div>
-          </Card>
-
-          <Card>
-            <div className="text-sm text-zinc-400">Token</div>
-            <div className="mt-1 text-lg font-semibold">MAGT</div>
-          </Card>
-        </div>
-
-        {/* PROGRESS */}
-        <div className="mt-12">
+        <div className="mt-10 grid gap-6 md:grid-cols-2">
           <PresaleProgress
             lang={lang}
             currentRound={currentRound}
-            soldTotal={soldTotal}
             soldInRound={soldInRound}
+            soldTotal={soldTotal}
           />
+
+          <Card>
+            <div className="text-lg font-semibold">{t(lang, "app__stats")}</div>
+            <div className="mt-3 text-sm text-zinc-400">
+              Raised (est.): ${raisedUsd.toLocaleString()}
+            </div>
+            <div className="mt-2 text-xs text-zinc-500 break-all">
+              Presale: {PRESALE_CONTRACT}
+            </div>
+          </Card>
         </div>
 
-        {/* CALC */}
         <div className="mt-10">
           <TonToMagtCalculator lang={lang} currentRound={currentRound} />
         </div>
 
-        {/* BUY (anchor for header button) */}
+        {/* BUY */}
         <section id="buy" className="mt-10 scroll-mt-28">
-          <PresaleWidget lang={lang} />
+          <PresaleWidget lang={lang} onTxSent={() => setRefreshTick((x) => x + 1)} />
         </section>
 
-        {/* PROJECTS / MILESTONES */}
         <section className="mt-14">
           <ProjectsSection lang={lang} raisedUsd={raisedUsd} />
         </section>
 
-        {/* TRUST / TOKENOMICS / ROADMAP */}
         <section className="mt-14 grid gap-10">
           <TrustSection lang={lang} />
           <Tokenomics lang={lang} />
           <Roadmap lang={lang} />
         </section>
 
-        {/* FAQ (anchor for header button) */}
         <section id="faq" className="mt-14 scroll-mt-28">
           <FAQ lang={lang} />
         </section>
 
-        {/* SOCIAL */}
         <section id="social" className="mt-14 scroll-mt-28">
           <SiteFooter lang={lang} />
         </section>

@@ -4,7 +4,7 @@ import { useTonAddress, useTonConnectUI } from "@tonconnect/ui-react";
 import { beginCell, Address } from "@ton/core";
 import { Card } from "./Card";
 import { toNumberSafe } from "../lib/format";
-import { nowPlus, toNanoTon } from "../lib/ton";
+import { safeValidUntil, toNanoTon } from "../lib/ton";
 import { PRESALE_CONTRACT } from "../lib/config";
 import type { LangCode } from "../lib/i18n";
 import { t } from "../lib/i18n";
@@ -25,18 +25,18 @@ function bytesToBase64(bytes: Uint8Array) {
 function buildBuyPayloadBase64(refAddr: Address): string {
   const BUY_OPCODE = 0x42555901;
 
-  const cell = beginCell().storeUint(BUY_OPCODE, 32).storeAddress(refAddr).endCell();
+  const cell = beginCell()
+    .storeUint(BUY_OPCODE, 32)
+    .storeAddress(refAddr)
+    .endCell();
+
   return bytesToBase64(cell.toBoc({ idx: false }));
 }
 
-/**
- * Повертає ref адресу з URL, або null якщо ref нема/невалідний.
- */
-function getRefAddressFromUrl(): Address | null {
+function getRefAddressOrNull(): Address | null {
   try {
     const ref = new URLSearchParams(window.location.search).get("ref");
-    if (!ref) return null;
-    return Address.parse(ref);
+    return ref ? Address.parse(ref) : null;
   } catch {
     return null;
   }
@@ -44,12 +44,9 @@ function getRefAddressFromUrl(): Address | null {
 
 /** дозволяє тільки число з '.' і максимум 4 знаки після крапки */
 function sanitizeTonInput(raw: string, decimals = 4): string {
-  const v = raw.replace(",", "."); // якщо хтось вводить кому
+  const v = raw.replace(",", ".");
   if (v === "") return "";
-
-  // тільки цифри і одна крапка
   if (!/^\d*\.?\d*$/.test(v)) return v.replace(/[^\d.]/g, "");
-
   const [intPart, fracPart] = v.split(".");
   if (typeof fracPart === "string") {
     return `${intPart}.${fracPart.slice(0, decimals)}`;
@@ -57,7 +54,13 @@ function sanitizeTonInput(raw: string, decimals = 4): string {
   return intPart;
 }
 
-export function PresaleWidget({ lang }: { lang: LangCode }) {
+export function PresaleWidget({
+  lang,
+  onTxSent,
+}: {
+  lang: LangCode;
+  onTxSent?: () => void;
+}) {
   const addr = useTonAddress();
   const [tonConnectUI] = useTonConnectUI();
 
@@ -65,30 +68,21 @@ export function PresaleWidget({ lang }: { lang: LangCode }) {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
 
-  /**
-   * ✅ ВАЖЛИВО (як у scripts/buy.ts):
-   * - якщо ref НЕ заданий або ref == buyer -> payload НЕ відправляємо (plain TON / receive()).
-   * - якщо ref заданий і ref != buyer -> відправляємо BUY payload.
-   *
-   * Це прибирає bounce на сайті, якщо контракт не приймає Buy(ref=self).
-   */
-  const buyPayload = useMemo(() => {
+  // ✅ КЛЮЧОВИЙ ФІКС:
+  // якщо ref не заданий АБО ref == self -> шлемо plain TON (без payload), як у твоєму CLI buy.ts
+  const { payload, refLabel } = useMemo(() => {
     try {
-      if (!addr) return undefined;
-
+      if (!addr) return { payload: undefined as string | undefined, refLabel: "(none)" };
       const self = Address.parse(addr);
-      const refAddr = getRefAddressFromUrl();
+      const ref = getRefAddressOrNull();
 
-      // нема ref -> plain TON
-      if (!refAddr) return undefined;
+      if (!ref || ref.equals(self)) {
+        return { payload: undefined, refLabel: "(none)" };
+      }
 
-      // ref == self -> plain TON (щоб не було саморефа)
-      if (refAddr.equals(self)) return undefined;
-
-      // є валідний ref і він не self -> payload
-      return buildBuyPayloadBase64(refAddr);
+      return { payload: buildBuyPayloadBase64(ref), refLabel: ref.toString() };
     } catch {
-      return undefined;
+      return { payload: undefined, refLabel: "(none)" };
     }
   }, [addr]);
 
@@ -102,24 +96,20 @@ export function PresaleWidget({ lang }: { lang: LangCode }) {
     setMsg("");
 
     try {
-      const message: any = {
-        address: PRESALE_CONTRACT,
-        amount: toNanoTon(ton),
-      };
-
-      // payload додаємо тільки якщо він реально потрібен (є валідний ref != self)
-      if (buyPayload) {
-        message.payload = buyPayload;
-      }
-
       await tonConnectUI.sendTransaction({
-        // На телефоні підтвердження може зайняти >5 секунд,
-        // тому даємо запас (10 хв), щоб не було "вічної загрузки" / expire.
-        validUntil: nowPlus(5 * 60 - 10),
-        messages: [message],
+        // <= 5 хв (TonConnect warning не буде)
+        validUntil: safeValidUntil(5 * 60 - 10),
+        messages: [
+          {
+            address: PRESALE_CONTRACT,
+            amount: toNanoTon(ton),
+            ...(payload ? { payload } : {}), // ✅ якщо payload нема — буде plain TON
+          },
+        ],
       });
 
       setMsg(t(lang, "presale_widget__13"));
+      onTxSent?.();
     } catch (e: any) {
       setMsg(e?.message ?? t(lang, "presale_widget__14"));
     } finally {
@@ -130,13 +120,15 @@ export function PresaleWidget({ lang }: { lang: LangCode }) {
   return (
     <Card>
       <div className="text-lg font-semibold">{t(lang, "presale_widget__1")}</div>
-      <div className="mt-1 text-sm text-zinc-400">{t(lang, "presale_widget__2")}</div>
+      <div className="mt-1 text-sm text-zinc-400">
+        {t(lang, "presale_widget__2")}
+      </div>
 
       <div className="mt-5 rounded-2xl border border-white/10 bg-black/40 p-4 backdrop-blur-md">
         <div className="flex items-center justify-between text-sm font-semibold">
           <span>{t(lang, "presale_widget__3")}</span>
           <span className="text-[11px] text-zinc-400">
-            {t(lang, "presale_widget__4")} {buyPayload ? "✅ REF payload" : "— plain TON"}
+            REF: {refLabel === "(none)" ? "—" : "✅"}
           </span>
         </div>
 
