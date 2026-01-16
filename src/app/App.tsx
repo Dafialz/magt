@@ -83,8 +83,7 @@ function buildClaimPayloadBase64(): string {
   const tag = "ICLAI";
   const qid = BigInt(Date.now());
 
-  // @ton/core Builder.storeBuffer expects Node.js Buffer.
-  // In the browser (Vite/React), we store the ASCII bytes manually.
+  // storeBuffer expects Node.js Buffer; in browser we store ASCII bytes manually
   const b = beginCell();
   for (let i = 0; i < tag.length; i++) {
     b.storeUint(tag.charCodeAt(i) & 0xff, 8);
@@ -235,7 +234,9 @@ export default function App() {
           {/* Your MAGT */}
           <Card>
             <div className="text-sm text-zinc-400">{t(lang, "app__your_magt")}</div>
-            <div className="mt-2 text-3xl font-semibold">{claimableMagt.toFixed(3)} MAGT</div>
+            <div className="mt-2 text-3xl font-semibold">
+              {claimableMagt.toFixed(3)} MAGT
+            </div>
 
             <button
               disabled={!claimEnabled}
@@ -254,8 +255,12 @@ export default function App() {
 
           {/* Referral MAGT */}
           <Card>
-            <div className="text-sm text-zinc-400">{t(lang, "app__referral_magt")}</div>
-            <div className="mt-2 text-3xl font-semibold">{referralMagt.toFixed(3)} MAGT</div>
+            <div className="text-sm text-zinc-400">
+              {t(lang, "app__referral_magt")}
+            </div>
+            <div className="mt-2 text-3xl font-semibold">
+              {referralMagt.toFixed(3)} MAGT
+            </div>
 
             <div className="mt-4">
               <ReferralButton lang={lang} />

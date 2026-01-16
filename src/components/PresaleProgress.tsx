@@ -16,7 +16,8 @@ export function PresaleProgress({
   soldTotal: number;
 }) {
   const roundCap =
-    ROUNDS_TOKENS[Math.max(0, Math.min(currentRound, ROUNDS_TOKENS.length - 1))] ?? 0;
+    ROUNDS_TOKENS[Math.max(0, Math.min(currentRound, ROUNDS_TOKENS.length - 1))] ??
+    0;
   const progress = roundCap > 0 ? Math.min(1, Math.max(0, soldInRound / roundCap)) : 0;
 
   return (
