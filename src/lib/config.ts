@@ -2,15 +2,23 @@
 
 /**
  * ✅ Network selector
- * - Production domain (magtcoin.com) -> mainnet
- * - Everything else (Netlify previews, localhost) -> testnet
- * - You can force via query param: ?network=testnet|mainnet
+ * Priority:
+ * 1) URL param ?network=testnet|mainnet
+ * 2) VITE_TON_NETWORK from env
+ * 3) Production domain (magtcoin.com) -> mainnet
+ * 4) Everything else -> testnet
  */
 function detectNetwork(): "testnet" | "mainnet" {
+  // 1) URL override
   const params = new URLSearchParams(window.location.search);
   const forced = params.get("network");
   if (forced === "testnet" || forced === "mainnet") return forced;
 
+  // 2) Env override (Vite)
+  const envNet = (import.meta as any)?.env?.VITE_TON_NETWORK;
+  if (envNet === "testnet" || envNet === "mainnet") return envNet;
+
+  // 3) Fallback by domain
   const host = window.location.hostname.toLowerCase();
   const isProdDomain = host === "magtcoin.com" || host === "www.magtcoin.com";
   return isProdDomain ? "mainnet" : "testnet";
@@ -20,10 +28,10 @@ export const NETWORK = detectNetwork();
 export const IS_TESTNET = NETWORK === "testnet";
 
 /**
- * ✅ TonConnect manifest MUST be served from the same domain as your frontend
- * (Netlify / localhost / magtcoin.com)
+ * ✅ TonConnect manifest MUST be served from the same domain
  */
-export const TONCONNECT_MANIFEST_URL = `${window.location.origin}/tonconnect-manifest.json`;
+export const TONCONNECT_MANIFEST_URL =
+  `${window.location.origin}/tonconnect-manifest.json`;
 
 /** ✅ TonAPI base */
 export const TONAPI_BASE = IS_TESTNET
@@ -33,7 +41,6 @@ export const TONAPI_BASE = IS_TESTNET
 /**
  * ✅ Contracts (addresses)
  * Change ONLY these when you redeploy.
- * Keep testnet addresses here, mainnet addresses for production domain.
  */
 export const PRESALE_CONTRACT = IS_TESTNET
   ? "EQCE9yKrcWUjhqg9b-b5RFpcYtDwUHnniH9j1QQEWks4zwUE"
