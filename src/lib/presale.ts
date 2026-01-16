@@ -39,6 +39,28 @@ export function priceUsd(roundIndex: number): number {
   return base + roundIndex * step;
 }
 
+/**
+ * ===== Round price in TON per 1 MAGT =====
+ * ВАЖЛИВО: без контракту ми не можемо точно знати ton-ціну.
+ * Але тобі треба щоб збірка проходила і калькулятор мав єдине джерело.
+ *
+ * Тут ми робимо просту конвертацію через "reference" TON/USD.
+ * Якщо в presale.tact ціна інша — заміниш лише цю константу/логіку.
+ */
+export const TON_USD_REFERENCE = 5; // <-- при бажанні підкоригуєш
+
+export function getRoundPriceTon(roundIndex: number): number {
+  const i = clampRoundIndex(roundIndex);
+  const usd = priceUsd(i);
+
+  const tonUsd = TON_USD_REFERENCE;
+  if (!Number.isFinite(usd) || usd <= 0) return 0;
+  if (!Number.isFinite(tonUsd) || tonUsd <= 0) return 0;
+
+  const ton = usd / tonUsd;
+  return Number.isFinite(ton) && ton > 0 ? ton : 0;
+}
+
 /* ===== helpers ===== */
 
 export function fromNano(n: bigint): number {
