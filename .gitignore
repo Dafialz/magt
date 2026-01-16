@@ -21,3 +21,9 @@ Session.vim
 .nvim/
 .emacs/
 .helix/
+
+.env
+ADDR=*
+temp/
+node_modules/
+
