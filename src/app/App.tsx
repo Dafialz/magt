@@ -189,12 +189,23 @@ export default function App() {
 
   const claimEnabled = CLAIM_ENABLED_GLOBALLY && !!addr;
 
-  // ✅ після TX: форсимо оновлення двічі (індексер може запізнитись)
+  // ✅ після TX: TonAPI/індексер на testnet часто запізнюється.
+  // Тому після покупки/клейму робимо короткий polling ~60s.
   const forceRefreshAfterTx = () => {
-    // 1) швидко
+    // одразу
+    reloadOnchain(true);
+
+    // швидкі рефреші
     window.setTimeout(() => reloadOnchain(true), 1500);
-    // 2) контрольне через кілька секунд
     window.setTimeout(() => reloadOnchain(true), 8000);
+
+    // polling до 60 секунд (кожні 4s), тільки якщо вкладка активна
+    const started = Date.now();
+    const id = window.setInterval(() => {
+      if (document.hidden) return;
+      reloadOnchain(true);
+      if (Date.now() - started > 60_000) window.clearInterval(id);
+    }, 4000);
   };
 
   const onClaimClick = async () => {

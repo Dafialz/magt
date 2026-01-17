@@ -74,15 +74,47 @@ function retryAfterToMs(h: string | null): number {
   return 10_000;
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const r = await fetch(url, { cache: "no-store" });
+async function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
 
-  if (r.status === 429) {
-    throw new RateLimitError(retryAfterToMs(r.headers.get("retry-after")));
+async function fetchJson<T>(
+  url: string,
+  opts?: {
+    /** How many times to retry on TONAPI rate limit (429). */
+    retries?: number;
+  }
+): Promise<T> {
+  const retries = Math.max(0, Math.floor(opts?.retries ?? 0));
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const r = await fetch(url, {
+      cache: "no-store",
+      headers: {
+        // extra anti-cache for some CDNs
+        "cache-control": "no-cache",
+        pragma: "no-cache",
+      },
+    });
+
+    if (r.status === 429) {
+      const retryAfterMs = retryAfterToMs(r.headers.get("retry-after"));
+
+      // if we still have attempts left -> short wait then retry
+      if (attempt < retries) {
+        await sleep(Math.min(1500, retryAfterMs));
+        continue;
+      }
+
+      throw new RateLimitError(retryAfterMs);
+    }
+
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return (await r.json()) as T;
   }
 
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return (await r.json()) as T;
+  // unreachable
+  throw new Error("UNREACHABLE");
 }
 
 type TonApiRunGetMethodResp = {
@@ -134,7 +166,8 @@ function stackItemToBigInt(item: any): bigint {
 async function tonApiRunGetMethod(
   accountId: string,
   methodName: string,
-  args: string[] = []
+  args: string[] = [],
+  opts?: { retries?: number }
 ): Promise<TonApiRunGetMethodResp> {
   const qs = new URLSearchParams();
   for (const a of args) qs.append("args", a);
@@ -146,7 +179,7 @@ async function tonApiRunGetMethod(
     methodName
   )}?${qs.toString()}`;
 
-  return await fetchJson<TonApiRunGetMethodResp>(url);
+  return await fetchJson<TonApiRunGetMethodResp>(url, { retries: opts?.retries ?? 0 });
 }
 
 function addressArgToBocB64(addr: string): string {
@@ -160,10 +193,11 @@ function addressArgToBocB64(addr: string): string {
  */
 async function getClaimableFromContract(
   presaleAddr: string,
-  walletAddr: string
+  walletAddr: string,
+  opts?: { retries?: number }
 ): Promise<bigint> {
   const bocArg = addressArgToBocB64(walletAddr);
-  const r = await tonApiRunGetMethod(presaleAddr, "claimableNano", [bocArg]);
+  const r = await tonApiRunGetMethod(presaleAddr, "claimableNano", [bocArg], opts);
   const exit = r.exit_code ?? r.exitCode ?? 1;
   if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
   return 0n;
@@ -245,6 +279,9 @@ export async function getPresaleSnapshot(args?: {
   const walletAddress = args?.walletAddress;
   const force = !!args?.force;
 
+  // When force=true (after TX) we allow a small retry window on 429.
+  const tonApiRetries = force ? 1 : 0;
+
   const key = cacheKey(presaleAddress, walletAddress);
   const t0 = Date.now();
   const entry: CacheEntry = SNAPSHOT_CACHE.get(key) ?? { ts: 0 };
@@ -266,10 +303,10 @@ export async function getPresaleSnapshot(args?: {
     try {
       // ✅ основне: читаємо getter-и контракту
       const [rRaised, rSold, rRound, rRoundSold] = await Promise.all([
-        tonApiRunGetMethod(presaleAddress, "totalRaisedNano"),
-        tonApiRunGetMethod(presaleAddress, "totalSoldNano"),
-        tonApiRunGetMethod(presaleAddress, "currentRound"),
-        tonApiRunGetMethod(presaleAddress, "currentRoundSoldNano"),
+        tonApiRunGetMethod(presaleAddress, "totalRaisedNano", [], { retries: tonApiRetries }),
+        tonApiRunGetMethod(presaleAddress, "totalSoldNano", [], { retries: tonApiRetries }),
+        tonApiRunGetMethod(presaleAddress, "currentRound", [], { retries: tonApiRetries }),
+        tonApiRunGetMethod(presaleAddress, "currentRoundSoldNano", [], { retries: tonApiRetries }),
       ]);
 
       const ok =
@@ -291,7 +328,9 @@ export async function getPresaleSnapshot(args?: {
 
       let claimableNano = 0n;
       if (walletAddress) {
-        claimableNano = await getClaimableFromContract(presaleAddress, walletAddress);
+        claimableNano = await getClaimableFromContract(presaleAddress, walletAddress, {
+          retries: tonApiRetries,
+        });
       }
 
       const data: PresaleSnapshot = {
@@ -308,12 +347,16 @@ export async function getPresaleSnapshot(args?: {
       // 429 -> cooldown + повертаємо попереднє значення, щоб UI не ставав 0
       if (e instanceof RateLimitError) {
         const prev = SNAPSHOT_CACHE.get(key);
-        const cooldownUntil = Date.now() + e.retryAfterMs;
-        SNAPSHOT_CACHE.set(key, {
-          ts: prev?.ts ?? 0,
-          data: prev?.data,
-          cooldownUntil,
-        });
+        // Якщо force=true (після TX) — не ставимо довгий cooldown,
+        // щоб polling міг одразу повторити запит.
+        if (!force) {
+          const cooldownUntil = Date.now() + e.retryAfterMs;
+          SNAPSHOT_CACHE.set(key, {
+            ts: prev?.ts ?? 0,
+            data: prev?.data,
+            cooldownUntil,
+          });
+        }
         return prev?.data ?? emptySnapshot();
       }
 
