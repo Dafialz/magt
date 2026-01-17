@@ -20,27 +20,26 @@ function bytesToBase64(bytes: Uint8Array) {
 
 /**
  * message(0x42555901) Buy { ref: Address }
+ * Якщо ref НЕ заданий — краще відправити пустий body (receive())
+ * щоб контракт викликав processBuy(null) і НЕ з'їдав referralPool.
  */
 function buildBuyPayloadBase64(ref: Address) {
   const BUY_OPCODE = 0x42555901;
-
   const cell = beginCell().storeUint(BUY_OPCODE, 32).storeAddress(ref).endCell();
   return bytesToBase64(cell.toBoc({ idx: false }));
 }
 
-const ZERO_REF = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c";
-
-function getRefOrZero(self: Address): Address {
+function getRefOrNull(self: Address): Address | null {
   try {
     const refParam = new URLSearchParams(window.location.search).get("ref");
-    if (!refParam) return Address.parse(ZERO_REF);
+    if (!refParam) return null;
 
     const ref = Address.parse(refParam);
-    if (ref.equals(self)) return Address.parse(ZERO_REF);
+    if (ref.equals(self)) return null;
 
-    return ref;
+    return ref; // валідний реферал
   } catch {
-    return Address.parse(ZERO_REF);
+    return null;
   }
 }
 
@@ -61,7 +60,9 @@ export function PresaleWidget({
   const payload = useMemo(() => {
     if (!addr) return undefined;
     const self = Address.parse(addr);
-    const ref = getRefOrZero(self);
+    const ref = getRefOrNull(self);
+    // якщо ref нема — payload не треба (спрацює receive())
+    if (!ref) return undefined;
     return buildBuyPayloadBase64(ref);
   }, [addr]);
 
@@ -70,8 +71,6 @@ export function PresaleWidget({
 
     const ton = toNumberSafe(tonAmount);
     if (ton <= 0) return setMsg(t(lang, "presale_widget__11"));
-
-    if (!payload) return setMsg("Wallet payload is not ready. Try again.");
 
     setLoading(true);
     setMsg("");
@@ -83,7 +82,7 @@ export function PresaleWidget({
           {
             address: PRESALE_CONTRACT,
             amount: toNanoTon(ton),
-            payload,
+            ...(payload ? { payload } : {}),
           },
         ],
       });
@@ -97,7 +96,7 @@ export function PresaleWidget({
     }
   }
 
-  const canBuy = !!addr && !!payload && !loading;
+  const canBuy = !!addr && !loading;
 
   return (
     <Card>
