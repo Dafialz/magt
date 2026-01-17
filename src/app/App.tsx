@@ -78,15 +78,12 @@ function bytesToBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
-// Claim payload: opcode "CLAI" (0x434C4149) + query_id (uint64)
+// ✅ Claim payload: opcode "CLAI" (0x434C4149) + query_id:Int (257 bits)
 function buildClaimPayloadBase64(): string {
   const qid = BigInt(Date.now());
-
-  // Tact message(0x434C4149) Claim { query_id: Int }
-  // Encode: op (32 bits) + query_id (uint64)
   const cell = beginCell()
     .storeUint(0x434c4149, 32) // "CLAI"
-    .storeUint(qid, 64)
+    .storeInt(qid, 257) // Claim.query_id: Int
     .endCell();
 
   return bytesToBase64(cell.toBoc({ idx: false }));
@@ -119,6 +116,7 @@ export default function App() {
     [snapshot.soldInRoundNano]
   );
 
+  // ✅ тепер це claimable з контракту (після Buy має рости)
   const claimableMagt = useMemo(
     () => fromNano(snapshot.claimableNano),
     [snapshot.claimableNano]
@@ -173,13 +171,11 @@ export default function App() {
     }
   };
 
-  // reload on connect + manual refreshTick
   useEffect(() => {
     reloadOnchain();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addr, refreshTick]);
 
-  // polling (щоб прогрес/баланс підтягувались навіть якщо юзер нічого не тисне)
   useEffect(() => {
     const id = window.setInterval(() => {
       setRefreshTick((x) => x + 1);
@@ -204,7 +200,6 @@ export default function App() {
         ],
       });
 
-      // після claim — оновити баланс/прогрес
       setRefreshTick((x) => x + 1);
     } catch {
       // тихо
