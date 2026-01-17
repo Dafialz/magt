@@ -1,7 +1,13 @@
 // src/lib/presale.ts
 
 import { Address, beginCell } from "@ton/core";
-import { TONAPI_BASE, JETTON_MASTER, PRESALE_CONTRACT } from "./config";
+import {
+  TONAPI_BASE,
+  JETTON_MASTER,
+  PRESALE_CONTRACT,
+  TONCENTER_API_KEY,
+  TONCENTER_JSONRPC,
+} from "./config";
 
 /* ===== Tokenomics/rounds constants ===== */
 
@@ -88,14 +94,20 @@ async function fetchJson<T>(
   const retries = Math.max(0, Math.floor(opts?.retries ?? 0));
 
   for (let attempt = 0; attempt <= retries; attempt++) {
-    const r = await fetch(url, {
-      cache: "no-store",
-      headers: {
-        // extra anti-cache for some CDNs
-        "cache-control": "no-cache",
-        pragma: "no-cache",
-      },
-    });
+    let r: Response;
+    try {
+      r = await fetch(url, {
+        cache: "no-store",
+        headers: {
+          // extra anti-cache for some CDNs
+          "cache-control": "no-cache",
+          pragma: "no-cache",
+        },
+      });
+    } catch {
+      // network/cors/blocked
+      throw new Error("FETCH_FAILED");
+    }
 
     if (r.status === 429) {
       const retryAfterMs = retryAfterToMs(r.headers.get("retry-after"));
@@ -182,6 +194,54 @@ async function tonApiRunGetMethod(
   return await fetchJson<TonApiRunGetMethodResp>(url, { retries: opts?.retries ?? 0 });
 }
 
+/**
+ * Toncenter JSON-RPC fallback (коли TonAPI не доступний)
+ */
+async function toncenterRunGetMethod(
+  accountId: string,
+  methodName: string,
+  stack: any[] = []
+): Promise<TonApiRunGetMethodResp> {
+  const body = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "runGetMethod",
+    params: {
+      address: accountId,
+      method: methodName,
+      stack,
+    },
+  };
+
+  let r: Response;
+  try {
+    r = await fetch(TONCENTER_JSONRPC, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(TONCENTER_API_KEY ? { "X-API-Key": TONCENTER_API_KEY } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error("TONCENTER_FETCH_FAILED");
+  }
+
+  if (!r.ok) throw new Error(`TONCENTER_HTTP_${r.status}`);
+
+  const j = (await r.json()) as any;
+  if (j?.error) throw new Error("TONCENTER_RPC_ERROR");
+
+  // toncenter returns: { result: { exit_code, stack, ... } }
+  const res = j?.result ?? j?.result?.result;
+  if (!res) throw new Error("TONCENTER_NO_RESULT");
+
+  return {
+    exit_code: res.exit_code ?? res.exitCode,
+    stack: res.stack,
+  };
+}
+
 function addressArgToBocB64(addr: string): string {
   const a = Address.parse(addr);
   const cell = beginCell().storeAddress(a).endCell();
@@ -190,6 +250,7 @@ function addressArgToBocB64(addr: string): string {
 
 /**
  * TonAPI getter з Address аргументом очікує args = [BOC(base64) cell]
+ * Toncenter expects stack = [["slice", BOC(base64)]]
  */
 async function getClaimableFromContract(
   presaleAddr: string,
@@ -197,9 +258,21 @@ async function getClaimableFromContract(
   opts?: { retries?: number }
 ): Promise<bigint> {
   const bocArg = addressArgToBocB64(walletAddr);
-  const r = await tonApiRunGetMethod(presaleAddr, "claimableNano", [bocArg], opts);
-  const exit = r.exit_code ?? r.exitCode ?? 1;
-  if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
+
+  // 1) try TonAPI
+  try {
+    const r = await tonApiRunGetMethod(presaleAddr, "claimableNano", [bocArg], opts);
+    const exit = r.exit_code ?? r.exitCode ?? 1;
+    if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
+  } catch {
+    // ignore -> fallback
+  }
+
+  // 2) fallback Toncenter
+  const r2 = await toncenterRunGetMethod(presaleAddr, "claimableNano", [["slice", bocArg]]);
+  const exit2 = r2.exit_code ?? r2.exitCode ?? 1;
+  if (exit2 === 0 && r2.stack?.length) return stackItemToBigInt(r2.stack[0]);
+
   return 0n;
 }
 
@@ -302,12 +375,28 @@ export async function getPresaleSnapshot(args?: {
   const doFetch = (async () => {
     try {
       // ✅ основне: читаємо getter-и контракту
-      const [rRaised, rSold, rRound, rRoundSold] = await Promise.all([
-        tonApiRunGetMethod(presaleAddress, "totalRaisedNano", [], { retries: tonApiRetries }),
-        tonApiRunGetMethod(presaleAddress, "totalSoldNano", [], { retries: tonApiRetries }),
-        tonApiRunGetMethod(presaleAddress, "currentRound", [], { retries: tonApiRetries }),
-        tonApiRunGetMethod(presaleAddress, "currentRoundSoldNano", [], { retries: tonApiRetries }),
-      ]);
+      let rRaised: TonApiRunGetMethodResp;
+      let rSold: TonApiRunGetMethodResp;
+      let rRound: TonApiRunGetMethodResp;
+      let rRoundSold: TonApiRunGetMethodResp;
+
+      // 1) Try TonAPI
+      try {
+        [rRaised, rSold, rRound, rRoundSold] = await Promise.all([
+          tonApiRunGetMethod(presaleAddress, "totalRaisedNano", [], { retries: tonApiRetries }),
+          tonApiRunGetMethod(presaleAddress, "totalSoldNano", [], { retries: tonApiRetries }),
+          tonApiRunGetMethod(presaleAddress, "currentRound", [], { retries: tonApiRetries }),
+          tonApiRunGetMethod(presaleAddress, "currentRoundSoldNano", [], { retries: tonApiRetries }),
+        ]);
+      } catch {
+        // 2) Fallback Toncenter
+        [rRaised, rSold, rRound, rRoundSold] = await Promise.all([
+          toncenterRunGetMethod(presaleAddress, "totalRaisedNano"),
+          toncenterRunGetMethod(presaleAddress, "totalSoldNano"),
+          toncenterRunGetMethod(presaleAddress, "currentRound"),
+          toncenterRunGetMethod(presaleAddress, "currentRoundSoldNano"),
+        ]);
+      }
 
       const ok =
         (rRaised.exit_code ?? rRaised.exitCode ?? 1) === 0 &&

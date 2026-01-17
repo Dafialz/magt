@@ -36,11 +36,24 @@ export const TONCONNECT_MANIFEST_URL = `${window.location.origin}/tonconnect-man
 export const TONAPI_BASE = IS_TESTNET ? "https://testnet.tonapi.io" : "https://tonapi.io";
 
 /**
+ * ✅ Toncenter JSON-RPC (fallback when TonAPI is blocked/unreachable)
+ * Without API key Toncenter is rate-limited. You can set:
+ * VITE_TONCENTER_API_KEY or VITE_TONCENTER_KEY
+ */
+export const TONCENTER_JSONRPC = IS_TESTNET
+  ? "https://testnet.toncenter.com/api/v2/jsonRPC"
+  : "https://toncenter.com/api/v2/jsonRPC";
+
+export const TONCENTER_API_KEY =
+  ((import.meta as any)?.env?.VITE_TONCENTER_API_KEY as string | undefined) ||
+  ((import.meta as any)?.env?.VITE_TONCENTER_KEY as string | undefined) ||
+  undefined;
+
+/**
  * ✅ Contracts (addresses)
  * Change ONLY these when you redeploy.
  */
 export const PRESALE_CONTRACT = IS_TESTNET
-  // ✅ from your deployed testnet project (ADDR=... converted to friendly):
   ? "EQBNE7SAd3FrDrc-1GOWcmt5YZdtvsDdTk7QOFKW1221oing"
   : "EQB5YKJxw9D_FFLzHHg4yXlbaSWlmy9p4d2Akk3TsnlYxx94";
 
