@@ -30,20 +30,18 @@ export const IS_TESTNET = NETWORK === "testnet";
 /**
  * ✅ TonConnect manifest MUST be served from the same domain
  */
-export const TONCONNECT_MANIFEST_URL =
-  `${window.location.origin}/tonconnect-manifest.json`;
+export const TONCONNECT_MANIFEST_URL = `${window.location.origin}/tonconnect-manifest.json`;
 
 /** ✅ TonAPI base */
-export const TONAPI_BASE = IS_TESTNET
-  ? "https://testnet.tonapi.io"
-  : "https://tonapi.io";
+export const TONAPI_BASE = IS_TESTNET ? "https://testnet.tonapi.io" : "https://tonapi.io";
 
 /**
  * ✅ Contracts (addresses)
  * Change ONLY these when you redeploy.
  */
 export const PRESALE_CONTRACT = IS_TESTNET
-  ? "EQCE9yKrcWUjhqg9b-b5RFpcYtDwUHnniH9j1QQEWks4zwUE"
+  // ✅ from your deployed testnet project (ADDR=... converted to friendly):
+  ? "EQBNE7SAd3FrDrc-1GOWcmt5YZdtvsDdTk7QOFKW1221oing"
   : "EQB5YKJxw9D_FFLzHHg4yXlbaSWlmy9p4d2Akk3TsnlYxx94";
 
 export const JETTON_MASTER = IS_TESTNET
