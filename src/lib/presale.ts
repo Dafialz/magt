@@ -24,11 +24,11 @@ export type PresaleSnapshot = {
   currentRound: number;
   soldTotalNano: bigint;
   soldInRoundNano: bigint;
-  totalRaisedNano: bigint; // getter totalRaisedNano()
-  claimableNano: bigint;   // getter claimableNano(address)
+  totalRaisedNano: bigint;
+  claimableNano: bigint; // getter claimableNano(address)
 };
 
-/* ===== price (як було у тебе) ===== */
+/* ===== price ===== */
 export function priceUsd(roundIndex: number): number {
   const base = 0.011;
   const step = 0.001;
@@ -59,17 +59,29 @@ export function fromNano(n: bigint): number {
   return Number(`${head}.${tail}`);
 }
 
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
+class RateLimitError extends Error {
+  retryAfterMs: number;
+  constructor(retryAfterMs: number) {
+    super("TONAPI_RATE_LIMIT");
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+function retryAfterToMs(h: string | null): number {
+  if (!h) return 10_000;
+  const n = Number(h);
+  if (Number.isFinite(n) && n > 0) return Math.min(60_000, n * 1000);
+  return 10_000;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
   const r = await fetch(url, { cache: "no-store" });
-  if (!r.ok) {
-    const err: any = new Error(`HTTP ${r.status}`);
-    err.status = r.status;
-    throw err;
+
+  if (r.status === 429) {
+    throw new RateLimitError(retryAfterToMs(r.headers.get("retry-after")));
   }
+
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return (await r.json()) as T;
 }
 
@@ -93,48 +105,30 @@ function bytesToBase64(bytes: Uint8Array) {
 }
 
 function stackItemToBigInt(item: any): bigint {
+  // TonAPI v2 може повертати stack як:
+  // ["num","0x..."] або ["num","123"] або {type:"num", value:"..."}
   const t = Array.isArray(item) ? item[0] : item?.type;
   const v = Array.isArray(item) ? item[1] : item?.value;
 
-  if (t === "num" || t === "int") return BigInt(String(v ?? "0"));
+  if (t === "num" || t === "int") {
+    const s = String(v ?? "0");
+    try {
+      return BigInt(s);
+    } catch {
+      return 0n;
+    }
+  }
 
   if (typeof v === "string") {
-    if (/^-?\d+$/.test(v)) return BigInt(v);
-    if (v.startsWith("0x") || v.startsWith("-0x")) return BigInt(v);
+    try {
+      if (/^-?\d+$/.test(v)) return BigInt(v);
+      if (v.startsWith("0x") || v.startsWith("-0x")) return BigInt(v);
+    } catch {
+      // ignore
+    }
   }
+
   return 0n;
-}
-
-/* =====================================================
-   ✅ Anti-429 layer: limiter + retry + cache + dedupe
-   ===================================================== */
-
-const MIN_GAP_MS = 250;          // мінімальний інтервал між TonAPI запитами
-const MAX_RETRIES = 5;           // скільки разів пробувати при 429/5xx
-const BASE_BACKOFF_MS = 350;     // база для backoff
-const SNAPSHOT_TTL_MS = 12_000;  // кеш snapshot на 12с, щоб не спамити
-
-let lastTonApiAt = 0;
-let tonApiQueue: Promise<void> = Promise.resolve();
-
-async function tonApiSlot() {
-  // простенька черга, щоб не було паралельних запитів
-  tonApiQueue = tonApiQueue.then(async () => {
-    const now = Date.now();
-    const wait = Math.max(0, lastTonApiAt + MIN_GAP_MS - now);
-    if (wait > 0) await sleep(wait);
-    lastTonApiAt = Date.now();
-  });
-  await tonApiQueue;
-}
-
-function shouldRetryStatus(status?: number) {
-  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
-}
-
-function jitter(ms: number) {
-  const j = Math.floor(Math.random() * 120);
-  return ms + j;
 }
 
 async function tonApiRunGetMethod(
@@ -144,30 +138,15 @@ async function tonApiRunGetMethod(
 ): Promise<TonApiRunGetMethodResp> {
   const qs = new URLSearchParams();
   for (const a of args) qs.append("args", a);
+
+  // анти-кеш на CDN
   qs.set("t", String(Date.now()));
 
   const url = `${TONAPI_BASE}/v2/blockchain/accounts/${accountId}/methods/${encodeURIComponent(
     methodName
   )}?${qs.toString()}`;
 
-  let lastErr: any;
-
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      await tonApiSlot();
-      return await fetchJson<TonApiRunGetMethodResp>(url);
-    } catch (e: any) {
-      lastErr = e;
-      const status = e?.status;
-
-      if (!shouldRetryStatus(status) || attempt === MAX_RETRIES) break;
-
-      const wait = jitter(BASE_BACKOFF_MS * Math.pow(2, attempt));
-      await sleep(wait);
-    }
-  }
-
-  throw lastErr ?? new Error("TonAPI failed");
+  return await fetchJson<TonApiRunGetMethodResp>(url);
 }
 
 function addressArgToBocB64(addr: string): string {
@@ -176,20 +155,17 @@ function addressArgToBocB64(addr: string): string {
   return bytesToBase64(cell.toBoc({ idx: false }));
 }
 
+/**
+ * TonAPI getter з Address аргументом очікує args = [BOC(base64) cell]
+ */
 async function getClaimableFromContract(
   presaleAddr: string,
   walletAddr: string
 ): Promise<bigint> {
-  const tries: string[][] = [[walletAddr], [addressArgToBocB64(walletAddr)]];
-  for (const args of tries) {
-    try {
-      const r = await tonApiRunGetMethod(presaleAddr, "claimableNano", args);
-      const exit = r.exit_code ?? r.exitCode ?? 1;
-      if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
-    } catch {
-      // next try
-    }
-  }
+  const bocArg = addressArgToBocB64(walletAddr);
+  const r = await tonApiRunGetMethod(presaleAddr, "claimableNano", [bocArg]);
+  const exit = r.exit_code ?? r.exitCode ?? 1;
+  if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
   return 0n;
 }
 
@@ -231,18 +207,31 @@ function calcRoundFromSold(soldTotalNano: bigint): {
   return { currentRound: last, soldInRoundNano: lastCapNano };
 }
 
-/* ===== snapshot cache/dedupe ===== */
+/* ===== anti-429 cache / coalescing ===== */
 
 type CacheEntry = {
-  at: number;
-  value: PresaleSnapshot;
-  inflight?: Promise<PresaleSnapshot>;
+  ts: number;
+  data?: PresaleSnapshot;
+  inFlight?: Promise<PresaleSnapshot>;
+  cooldownUntil?: number;
 };
 
-const snapshotCache = new Map<string, CacheEntry>();
+const SNAPSHOT_CACHE = new Map<string, CacheEntry>();
 
 function cacheKey(presale: string, wallet?: string) {
-  return `${presale}::${wallet ?? ""}`;
+  return `${presale}::${wallet ?? "-"}`;
+}
+
+const MIN_FETCH_INTERVAL_MS = 8_000;
+
+function emptySnapshot(): PresaleSnapshot {
+  return {
+    currentRound: 0,
+    soldTotalNano: 0n,
+    soldInRoundNano: 0n,
+    totalRaisedNano: 0n,
+    claimableNano: 0n,
+  };
 }
 
 /* ===== main ===== */
@@ -250,30 +239,38 @@ function cacheKey(presale: string, wallet?: string) {
 export async function getPresaleSnapshot(args?: {
   presaleAddress?: string;
   walletAddress?: string;
+  force?: boolean; // ✅ bypass cache після TX
 }): Promise<PresaleSnapshot> {
   const presaleAddress = args?.presaleAddress ?? PRESALE_CONTRACT;
   const walletAddress = args?.walletAddress;
+  const force = !!args?.force;
 
   const key = cacheKey(presaleAddress, walletAddress);
-  const now = Date.now();
-  const cached = snapshotCache.get(key);
+  const t0 = Date.now();
+  const entry: CacheEntry = SNAPSHOT_CACHE.get(key) ?? { ts: 0 };
 
-  if (cached && now - cached.at < SNAPSHOT_TTL_MS) {
-    return cached.value;
+  // cooldown після 429
+  if (!force && entry.cooldownUntil && t0 < entry.cooldownUntil) {
+    return entry.data ?? emptySnapshot();
   }
 
-  if (cached?.inflight) return cached.inflight;
+  // coalesce
+  if (entry.inFlight) return entry.inFlight;
 
-  const inflight = (async (): Promise<PresaleSnapshot> => {
-    // якщо щось піде не так — тримай останнє відоме (щоб UI не стрибав в 0)
-    const last = snapshotCache.get(key)?.value;
+  // cache interval
+  if (!force && entry.data && t0 - entry.ts < MIN_FETCH_INTERVAL_MS) {
+    return entry.data;
+  }
 
-    // ✅ намагаємось getter-и (ПОСЛІДОВНО, з retry/backoff всередині)
+  const doFetch = (async () => {
     try {
-      const rRaised = await tonApiRunGetMethod(presaleAddress, "totalRaisedNano");
-      const rSold = await tonApiRunGetMethod(presaleAddress, "totalSoldNano");
-      const rRound = await tonApiRunGetMethod(presaleAddress, "currentRound");
-      const rRoundSold = await tonApiRunGetMethod(presaleAddress, "currentRoundSoldNano");
+      // ✅ основне: читаємо getter-и контракту
+      const [rRaised, rSold, rRound, rRoundSold] = await Promise.all([
+        tonApiRunGetMethod(presaleAddress, "totalRaisedNano"),
+        tonApiRunGetMethod(presaleAddress, "totalSoldNano"),
+        tonApiRunGetMethod(presaleAddress, "currentRound"),
+        tonApiRunGetMethod(presaleAddress, "currentRoundSoldNano"),
+      ]);
 
       const ok =
         (rRaised.exit_code ?? rRaised.exitCode ?? 1) === 0 &&
@@ -292,15 +289,12 @@ export async function getPresaleSnapshot(args?: {
       const currentRound = Number(stackItemToBigInt(rRound.stack![0]));
       const soldInRoundNano = stackItemToBigInt(rRoundSold.stack![0]);
 
-      let claimableNano = last?.claimableNano ?? 0n;
+      let claimableNano = 0n;
       if (walletAddress) {
-        // claimable окремо (але також з retry/backoff всередині tonApiRunGetMethod)
         claimableNano = await getClaimableFromContract(presaleAddress, walletAddress);
-      } else {
-        claimableNano = 0n;
       }
 
-      const snap: PresaleSnapshot = {
+      const data: PresaleSnapshot = {
         currentRound: clampRoundIndex(currentRound),
         soldTotalNano: soldTotalNano < 0n ? 0n : soldTotalNano,
         soldInRoundNano: soldInRoundNano < 0n ? 0n : soldInRoundNano,
@@ -308,10 +302,22 @@ export async function getPresaleSnapshot(args?: {
         claimableNano: claimableNano < 0n ? 0n : claimableNano,
       };
 
-      snapshotCache.set(key, { at: Date.now(), value: snap });
-      return snap;
-    } catch {
-      // ✅ fallback (але НЕ підміняємо claimable на jetton balance гаманця)
+      SNAPSHOT_CACHE.set(key, { ts: Date.now(), data });
+      return data;
+    } catch (e: any) {
+      // 429 -> cooldown + повертаємо попереднє значення, щоб UI не ставав 0
+      if (e instanceof RateLimitError) {
+        const prev = SNAPSHOT_CACHE.get(key);
+        const cooldownUntil = Date.now() + e.retryAfterMs;
+        SNAPSHOT_CACHE.set(key, {
+          ts: prev?.ts ?? 0,
+          data: prev?.data,
+          cooldownUntil,
+        });
+        return prev?.data ?? emptySnapshot();
+      }
+
+      // fallback: старий спосіб (не ідеальний, але краще ніж 0)
       try {
         const totalRaisedNano = await tonApiGetAccountBalanceNano(presaleAddress);
 
@@ -325,10 +331,13 @@ export async function getPresaleSnapshot(args?: {
 
         const { currentRound, soldInRoundNano } = calcRoundFromSold(soldTotalNano);
 
-        // якщо є last — краще показати його, ніж 0
-        const claimableNano = last?.claimableNano ?? 0n;
+        // тут claimable як jetton balance гаманця — НЕ те саме, але fallback
+        let claimableNano = 0n;
+        if (walletAddress) {
+          claimableNano = await tonApiGetWalletJettonBalanceNano(walletAddress, JETTON_MASTER);
+        }
 
-        const snap: PresaleSnapshot = {
+        const data: PresaleSnapshot = {
           currentRound,
           soldTotalNano,
           soldInRoundNano,
@@ -336,38 +345,17 @@ export async function getPresaleSnapshot(args?: {
           claimableNano,
         };
 
-        snapshotCache.set(key, { at: Date.now(), value: snap });
-        return snap;
+        SNAPSHOT_CACHE.set(key, { ts: Date.now(), data });
+        return data;
       } catch {
-        // якщо навіть fallback не вийшов — повернемо last або нулі
-        const snap: PresaleSnapshot =
-          last ??
-          ({
-            currentRound: 0,
-            soldTotalNano: 0n,
-            soldInRoundNano: 0n,
-            totalRaisedNano: 0n,
-            claimableNano: 0n,
-          } as PresaleSnapshot);
-
-        snapshotCache.set(key, { at: Date.now(), value: snap });
-        return snap;
+        return entry.data ?? emptySnapshot();
       }
     } finally {
-      const e = snapshotCache.get(key);
-      if (e?.inflight) {
-        snapshotCache.set(key, { ...e, inflight: undefined });
-      }
+      const cur = SNAPSHOT_CACHE.get(key);
+      if (cur) delete cur.inFlight;
     }
   })();
 
-  snapshotCache.set(key, { at: cached?.at ?? 0, value: cached?.value ?? {
-    currentRound: 0,
-    soldTotalNano: 0n,
-    soldInRoundNano: 0n,
-    totalRaisedNano: 0n,
-    claimableNano: 0n,
-  }, inflight });
-
-  return inflight;
+  SNAPSHOT_CACHE.set(key, { ...entry, inFlight: doFetch });
+  return doFetch;
 }

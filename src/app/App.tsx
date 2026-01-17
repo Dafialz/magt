@@ -153,7 +153,7 @@ export default function App() {
     return Number.isFinite(usd) && usd > 0 ? usd : 0;
   }, [currentRound, soldInRound]);
 
-  const reloadOnchain = async () => {
+  const reloadOnchain = async (force = false) => {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
 
@@ -161,6 +161,7 @@ export default function App() {
       const data = await getPresaleSnapshot({
         presaleAddress: PRESALE_CONTRACT,
         walletAddress: addr || undefined,
+        force,
       });
       setSnapshot(data);
     } catch {
@@ -170,13 +171,14 @@ export default function App() {
     }
   };
 
+  // базове оновлення (connect / polling)
   useEffect(() => {
-    reloadOnchain();
+    reloadOnchain(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addr, refreshTick]);
 
+  // ✅ polling 60s і тільки коли вкладка активна
   useEffect(() => {
-    // ✅ 60s polling і тільки коли вкладка активна (щоб не спамити TonAPI)
     const id = window.setInterval(() => {
       if (document.hidden) return;
       setRefreshTick((x) => x + 1);
@@ -186,6 +188,14 @@ export default function App() {
   }, []);
 
   const claimEnabled = CLAIM_ENABLED_GLOBALLY && !!addr;
+
+  // ✅ після TX: форсимо оновлення двічі (індексер може запізнитись)
+  const forceRefreshAfterTx = () => {
+    // 1) швидко
+    window.setTimeout(() => reloadOnchain(true), 1500);
+    // 2) контрольне через кілька секунд
+    window.setTimeout(() => reloadOnchain(true), 8000);
+  };
 
   const onClaimClick = async () => {
     if (!addr) return;
@@ -202,8 +212,7 @@ export default function App() {
         ],
       });
 
-      // після claim — оновити
-      setRefreshTick((x) => x + 1);
+      forceRefreshAfterTx();
     } catch {
       // тихо
     }
@@ -285,7 +294,7 @@ export default function App() {
         </div>
 
         <section id="buy" className="mt-10 scroll-mt-28">
-          <PresaleWidget lang={lang} onTxSent={() => setRefreshTick((x) => x + 1)} />
+          <PresaleWidget lang={lang} onTxSent={forceRefreshAfterTx} />
         </section>
 
         <section className="mt-14">
