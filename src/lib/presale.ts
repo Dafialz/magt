@@ -18,7 +18,9 @@ export const ROUNDS_TOKENS = [
   9_559_925, 8_412_734, 7_423_267, 6_514_821, 5_733_043,
 ];
 
+// backwards compat
 export const ROUND_TOKENS = ROUNDS_TOKENS;
+
 export const TOTAL_PRESALE_TOKENS = ROUNDS_TOKENS.reduce((a, b) => a + b, 0);
 
 // jetton decimals = 9
@@ -199,19 +201,27 @@ function toncenterMinIntervalMs() {
   return TONCENTER_API_KEY ? 250 : 1500;
 }
 
+/**
+ * Schedules a single slot in the toncenter queue.
+ * Returns a release() that is safe to call multiple times.
+ */
 async function toncenterSchedule() {
-  // послідовна черга
   const prev = TONCENTER_QUEUE;
-  let release!: () => void;
-  TONCENTER_QUEUE = new Promise<void>((r) => (release = r));
+
+  let releaseRaw!: () => void;
+  TONCENTER_QUEUE = new Promise<void>((r) => (releaseRaw = r));
+
   await prev;
 
-  try {
-    const wait = TONCENTER_LAST_AT + toncenterMinIntervalMs() - Date.now();
-    if (wait > 0) await sleep(wait);
-  } finally {
-    // оновимо timestamp, але release робимо після реального fetch (нижче)
-  }
+  const wait = TONCENTER_LAST_AT + toncenterMinIntervalMs() - Date.now();
+  if (wait > 0) await sleep(wait);
+
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    releaseRaw();
+  };
 
   return release;
 }
@@ -269,12 +279,9 @@ async function toncenterRunGetMethod(
       exit_code: res.exit_code ?? res.exitCode,
       stack: res.stack,
     };
-  } catch (e) {
-    // ensure queue released even on unexpected path (safety)
-    try {
-      release();
-    } catch {}
-    throw e;
+  } finally {
+    // release already executed in fetch finally; this is just safety
+    release();
   }
 }
 
@@ -300,15 +307,41 @@ async function getClaimableFromContractTonApi(
   return 0n;
 }
 
+/**
+ * Toncenter is picky about stack types; wrong one => 422.
+ * We try multiple formats.
+ */
 async function getClaimableFromContractToncenter(
   presaleAddr: string,
   walletAddr: string
 ): Promise<bigint> {
   const bocArg = addressArgToBocB64(walletAddr);
-  // toncenter expects stack items like ["slice", base64_boc]
-  const r = await toncenterRunGetMethod(presaleAddr, "claimableNano", [["slice", bocArg]]);
-  const exit = r.exit_code ?? r.exitCode ?? 1;
-  if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
+
+  const candidates: any[][] = [
+    // most common
+    [["tvm.Slice", bocArg]],
+    // some nodes accept this
+    [["slice", bocArg]],
+    // object style (some gateways)
+    [{ type: "tvm.Slice", value: bocArg }],
+    [{ type: "slice", value: bocArg }],
+  ];
+
+  for (const st of candidates) {
+    try {
+      const r = await toncenterRunGetMethod(presaleAddr, "claimableNano", st);
+      const exit = r.exit_code ?? r.exitCode ?? 1;
+      if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
+      return 0n;
+    } catch (e: any) {
+      const msg = String(e?.message ?? "");
+      // 422 = wrong arg format; try next
+      if (msg.includes("TONCENTER_HTTP_422")) continue;
+      // any other error -> also try next (because testnet can be flaky)
+      continue;
+    }
+  }
+
   return 0n;
 }
 
@@ -366,9 +399,9 @@ type ClaimEntry = {
   cooldownUntil?: number;
 };
 
-// ✅ IMPORTANT: one base snapshot per presale (shared across all components)
+// ✅ one base snapshot per presale
 const BASE_CACHE = new Map<string, BaseEntry>();
-// claimable is per-wallet (separate cache so we don't spam getters)
+// claimable is per-wallet
 const CLAIM_CACHE = new Map<string, ClaimEntry>();
 
 function baseKey(presale: string) {
@@ -381,9 +414,8 @@ function claimKey(presale: string, wallet: string) {
 
 // звичайний режим
 const MIN_FETCH_INTERVAL_MS = 20_000;
-// force режим (після TX) — теж обмежуємо, щоб не забанили
+// force режим (після TX)
 const MIN_FORCE_INTERVAL_MS = 8_000;
-
 // claimable читаємо рідше
 const CLAIMABLE_MIN_INTERVAL_MS = 30_000;
 
@@ -417,6 +449,7 @@ export async function getPresaleSnapshot(args?: {
   // coalesce base
   const minInterval = force ? MIN_FORCE_INTERVAL_MS : MIN_FETCH_INTERVAL_MS;
   let basePromise: Promise<Omit<PresaleSnapshot, "claimableNano">> | undefined = baseEntry.inFlight;
+
   if (!basePromise) {
     if (baseEntry.data && now - baseEntry.ts < minInterval) {
       basePromise = Promise.resolve(baseEntry.data);
@@ -499,12 +532,14 @@ export async function getPresaleSnapshot(args?: {
           const soldTotalNano =
             TOTAL_PRESALE_NANO > remainingNano ? TOTAL_PRESALE_NANO - remainingNano : 0n;
           const { currentRound, soldInRoundNano } = calcRoundFromSold(soldTotalNano);
+
           const base = {
             currentRound,
             soldTotalNano,
             soldInRoundNano,
             totalRaisedNano,
           };
+
           BASE_CACHE.set(bKey, { ts: Date.now(), data: base });
           return base;
         } finally {
@@ -519,8 +554,9 @@ export async function getPresaleSnapshot(args?: {
 
   const base = await basePromise;
 
-  // claimable (separate cache; this is the expensive call that can spam toncenter)
+  // claimable (separate cache; expensive getter)
   let claimableNano = 0n;
+
   if (walletAddress) {
     const cKey = claimKey(presaleAddress, walletAddress);
     const claimEntry: ClaimEntry = CLAIM_CACHE.get(cKey) ?? { ts: 0 };
@@ -531,6 +567,7 @@ export async function getPresaleSnapshot(args?: {
       claimableNano = await claimEntry.inFlight;
     } else {
       const needClaimable = force || now - claimEntry.ts >= CLAIMABLE_MIN_INTERVAL_MS;
+
       if (!needClaimable && claimEntry.claimable != null) {
         claimableNano = claimEntry.claimable;
       } else {
@@ -564,6 +601,8 @@ export async function getPresaleSnapshot(args?: {
 
         CLAIM_CACHE.set(cKey, { ...claimEntry, inFlight: doClaim });
         claimableNano = await doClaim;
+
+        // store result once
         CLAIM_CACHE.set(cKey, { ts: Date.now(), claimable: claimableNano });
       }
     }
