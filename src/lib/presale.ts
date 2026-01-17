@@ -123,18 +123,18 @@ async function getClaimableFromContract(
   presaleAddr: string,
   walletAddr: string
 ): Promise<bigint> {
-  // TonAPI може приймати або friendly address, або BOC cell.
-  const tries: string[][] = [[walletAddr], [addressArgToBocB64(walletAddr)]];
+  // ✅ ВАЖЛИВО: TonAPI для getter з Address аргументом очікує BOC(base64) cell.
+  // Friendly address ("EQ..", "0Q..") часто дає 0 / неправильний результат.
+  const bocArg = addressArgToBocB64(walletAddr);
 
-  for (const args of tries) {
-    try {
-      const r = await tonApiRunGetMethod(presaleAddr, "claimableNano", args);
-      const exit = r.exit_code ?? r.exitCode ?? 1;
-      if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
-    } catch {
-      // next try
-    }
+  try {
+    const r = await tonApiRunGetMethod(presaleAddr, "claimableNano", [bocArg]);
+    const exit = r.exit_code ?? r.exitCode ?? 1;
+    if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
+  } catch {
+    // ignore
   }
+
   return 0n;
 }
 
@@ -200,7 +200,13 @@ export async function getPresaleSnapshot(args?: {
       (rRound.exit_code ?? rRound.exitCode ?? 1) === 0 &&
       (rRoundSold.exit_code ?? rRoundSold.exitCode ?? 1) === 0;
 
-    if (!ok || !rRaised.stack?.length || !rSold.stack?.length || !rRound.stack?.length || !rRoundSold.stack?.length) {
+    if (
+      !ok ||
+      !rRaised.stack?.length ||
+      !rSold.stack?.length ||
+      !rRound.stack?.length ||
+      !rRoundSold.stack?.length
+    ) {
       throw new Error("GETTERS_FAILED");
     }
 
@@ -211,6 +217,7 @@ export async function getPresaleSnapshot(args?: {
 
     let claimableNano = 0n;
     if (walletAddress) {
+      // ✅ тут тепер завжди правильний формат аргумента (BOC base64)
       claimableNano = await getClaimableFromContract(presaleAddress, walletAddress);
     }
 
@@ -237,7 +244,11 @@ export async function getPresaleSnapshot(args?: {
 
     let claimableNano = 0n;
     if (walletAddress) {
-      claimableNano = await tonApiGetWalletJettonBalanceNano(walletAddress, JETTON_MASTER);
+      // fallback: після claim це буде реальний jetton баланс
+      claimableNano = await tonApiGetWalletJettonBalanceNano(
+        walletAddress,
+        JETTON_MASTER
+      );
     }
 
     return {
