@@ -14,12 +14,15 @@ import { TonConnectUIProvider } from "@tonconnect/ui-react";
 (globalThis as any).global = globalThis;
 
 // ✅ Clean absolute manifest URL (NO StrictMode!)
-const MANIFEST_URL = new URL(
-  "/tonconnect-manifest.json",
-  window.location.origin
-).toString();
+const MANIFEST_URL = new URL("/tonconnect-manifest.json", window.location.origin).toString();
+
+// ✅ Prevent double bootstrap (HMR / remount safety)
+let bootstrapped = false;
 
 async function bootstrap() {
+  if (bootstrapped) return;
+  bootstrapped = true;
+
   const { default: App } = await import("./app/App");
 
   const rootEl = document.getElementById("root");
