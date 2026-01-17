@@ -12,10 +12,7 @@ export const ROUNDS_TOKENS = [
   9_559_925, 8_412_734, 7_423_267, 6_514_821, 5_733_043,
 ];
 
-// alias щоб не ламати старі імпорти
 export const ROUND_TOKENS = ROUNDS_TOKENS;
-
-// загальний пресейл = сума раундів
 export const TOTAL_PRESALE_TOKENS = ROUNDS_TOKENS.reduce((a, b) => a + b, 0);
 
 // jetton decimals = 9
@@ -27,21 +24,17 @@ export type PresaleSnapshot = {
   currentRound: number;
   soldTotalNano: bigint;
   soldInRoundNano: bigint;
-  totalRaisedNano: bigint; // lifetime raised із контракту (getter totalRaisedNano)
-  claimableNano: bigint; // claimable із контракту (getter claimableNano(address))
+  totalRaisedNano: bigint; // ✅ getter totalRaisedNano()
+  claimableNano: bigint;   // ✅ getter claimableNano(address)
 };
 
 /* ===== price (як було у тебе) ===== */
 export function priceUsd(roundIndex: number): number {
-  const base = 0.011; // приклад
-  const step = 0.001; // приклад
+  const base = 0.011;
+  const step = 0.001;
   return base + roundIndex * step;
 }
 
-/**
- * ===== Round price in TON per 1 MAGT =====
- * (як було у тебе; можна пізніше замінити на roundPriceNano з контракту)
- */
 export const TON_USD_REFERENCE = 5;
 
 export function getRoundPriceTon(roundIndex: number): number {
@@ -92,20 +85,15 @@ function bytesToBase64(bytes: Uint8Array) {
 }
 
 function stackItemToBigInt(item: any): bigint {
-  // TonAPI stack часто виглядає як ["num","123"] або { type:"num", value:"123" }
   const t = Array.isArray(item) ? item[0] : item?.type;
   const v = Array.isArray(item) ? item[1] : item?.value;
 
-  if (t === "num" || t === "int") {
-    const s = String(v ?? "0");
-    return BigInt(s);
-  }
+  if (t === "num" || t === "int") return BigInt(String(v ?? "0"));
 
   if (typeof v === "string") {
-    if (v.match(/^-?\d+$/)) return BigInt(v);
+    if (/^-?\d+$/.test(v)) return BigInt(v);
     if (v.startsWith("0x") || v.startsWith("-0x")) return BigInt(v);
   }
-
   return 0n;
 }
 
@@ -135,17 +123,14 @@ async function getClaimableFromContract(
   presaleAddr: string,
   walletAddr: string
 ): Promise<bigint> {
-  // TonAPI інколи приймає або raw address, або boc cell.
-  // Робимо 2 спроби.
+  // TonAPI може приймати або friendly address, або BOC cell.
   const tries: string[][] = [[walletAddr], [addressArgToBocB64(walletAddr)]];
 
   for (const args of tries) {
     try {
       const r = await tonApiRunGetMethod(presaleAddr, "claimableNano", args);
       const exit = r.exit_code ?? r.exitCode ?? 1;
-      if (exit === 0 && r.stack?.length) {
-        return stackItemToBigInt(r.stack[0]);
-      }
+      if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
     } catch {
       // next try
     }
@@ -153,11 +138,8 @@ async function getClaimableFromContract(
   return 0n;
 }
 
-/**
- * Fallback (якщо геттери з якоїсь причини не відпрацюють):
- * - беремо sold через remaining jettons на presale
- * - claimable як jetton balance користувача (після claim)
- */
+/* ===== fallback (старий метод) ===== */
+
 async function tonApiGetAccountBalanceNano(address: string): Promise<bigint> {
   const url = `${TONAPI_BASE}/v2/accounts/${address}?t=${Date.now()}`;
   const j = await fetchJson<any>(url);
@@ -182,7 +164,6 @@ function calcRoundFromSold(soldTotalNano: bigint): {
   soldInRoundNano: bigint;
 } {
   let cum = 0n;
-
   for (let i = 0; i < ROUNDS_TOKENS.length; i++) {
     const capNano = BigInt(ROUNDS_TOKENS[i]) * NANO;
     if (soldTotalNano < cum + capNano) {
@@ -190,7 +171,6 @@ function calcRoundFromSold(soldTotalNano: bigint): {
     }
     cum += capNano;
   }
-
   const last = clampRoundIndex(ROUNDS_TOKENS.length - 1);
   const lastCapNano = BigInt(ROUNDS_TOKENS[last]) * NANO;
   return { currentRound: last, soldInRoundNano: lastCapNano };
@@ -205,7 +185,7 @@ export async function getPresaleSnapshot(args?: {
   const presaleAddress = args?.presaleAddress ?? PRESALE_CONTRACT;
   const walletAddress = args?.walletAddress;
 
-  // ✅ Source of truth для CLAIM variant: геттери з контракту
+  // ✅ ПРАВИЛЬНО для CLAIM variant: читаємо getter-и контракту
   try {
     const [rRaised, rSold, rRound, rRoundSold] = await Promise.all([
       tonApiRunGetMethod(presaleAddress, "totalRaisedNano"),
@@ -214,21 +194,13 @@ export async function getPresaleSnapshot(args?: {
       tonApiRunGetMethod(presaleAddress, "currentRoundSoldNano"),
     ]);
 
-    const exitRaised = rRaised.exit_code ?? rRaised.exitCode ?? 1;
-    const exitSold = rSold.exit_code ?? rSold.exitCode ?? 1;
-    const exitRound = rRound.exit_code ?? rRound.exitCode ?? 1;
-    const exitRoundSold = rRoundSold.exit_code ?? rRoundSold.exitCode ?? 1;
+    const ok =
+      (rRaised.exit_code ?? rRaised.exitCode ?? 1) === 0 &&
+      (rSold.exit_code ?? rSold.exitCode ?? 1) === 0 &&
+      (rRound.exit_code ?? rRound.exitCode ?? 1) === 0 &&
+      (rRoundSold.exit_code ?? rRoundSold.exitCode ?? 1) === 0;
 
-    if (
-      exitRaised !== 0 ||
-      exitSold !== 0 ||
-      exitRound !== 0 ||
-      exitRoundSold !== 0 ||
-      !rRaised.stack?.length ||
-      !rSold.stack?.length ||
-      !rRound.stack?.length ||
-      !rRoundSold.stack?.length
-    ) {
+    if (!ok || !rRaised.stack?.length || !rSold.stack?.length || !rRound.stack?.length || !rRoundSold.stack?.length) {
       throw new Error("GETTERS_FAILED");
     }
 
@@ -250,7 +222,7 @@ export async function getPresaleSnapshot(args?: {
       claimableNano: claimableNano < 0n ? 0n : claimableNano,
     };
   } catch {
-    // ===== fallback =====
+    // fallback на старе (на випадок проблем TonAPI)
     const totalRaisedNano = await tonApiGetAccountBalanceNano(presaleAddress);
 
     const remainingNano = await tonApiGetWalletJettonBalanceNano(
@@ -265,7 +237,6 @@ export async function getPresaleSnapshot(args?: {
 
     let claimableNano = 0n;
     if (walletAddress) {
-      // після claim це вже буде реальний jetton баланс
       claimableNano = await tonApiGetWalletJettonBalanceNano(walletAddress, JETTON_MASTER);
     }
 

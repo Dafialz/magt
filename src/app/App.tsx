@@ -32,12 +32,7 @@ import {
 import { safeValidUntil, toNanoTon } from "../lib/ton";
 import { t } from "../lib/i18n";
 
-/* =====================================================
-   ✅ CLAIM ENABLED
-   ===================================================== */
 const CLAIM_ENABLED_GLOBALLY = true;
-/* ===================================================== */
-
 const LS_REF_OWNER = "magt_ref_owner";
 
 function normAddr(s: string): string | null {
@@ -78,12 +73,14 @@ function bytesToBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
-// ✅ Claim payload: opcode "CLAI" (0x434C4149) + query_id:Int (257 bits)
+// ✅ Claim payload MUST match presale.tact:
+// message(0x434C4149) Claim { query_id: Int }
 function buildClaimPayloadBase64(): string {
   const qid = BigInt(Date.now());
+
   const cell = beginCell()
     .storeUint(0x434c4149, 32) // "CLAI"
-    .storeInt(qid, 257) // Claim.query_id: Int
+    .storeInt(qid, 257)        // Int (Tact)
     .endCell();
 
   return bytesToBase64(cell.toBoc({ idx: false }));
@@ -107,20 +104,9 @@ export default function App() {
 
   const currentRound = snapshot.currentRound;
 
-  const soldTotal = useMemo(
-    () => fromNano(snapshot.soldTotalNano),
-    [snapshot.soldTotalNano]
-  );
-  const soldInRound = useMemo(
-    () => fromNano(snapshot.soldInRoundNano),
-    [snapshot.soldInRoundNano]
-  );
-
-  // ✅ тепер це claimable з контракту (після Buy має рости)
-  const claimableMagt = useMemo(
-    () => fromNano(snapshot.claimableNano),
-    [snapshot.claimableNano]
-  );
+  const soldTotal = useMemo(() => fromNano(snapshot.soldTotalNano), [snapshot.soldTotalNano]);
+  const soldInRound = useMemo(() => fromNano(snapshot.soldInRoundNano), [snapshot.soldInRoundNano]);
+  const claimableMagt = useMemo(() => fromNano(snapshot.claimableNano), [snapshot.claimableNano]);
 
   const isReferralOwner = useMemo(() => {
     if (!addr) return false;
@@ -136,10 +122,7 @@ export default function App() {
     return false;
   }, [addr]);
 
-  const referralMagt = useMemo(
-    () => (isReferralOwner ? claimableMagt : 0),
-    [isReferralOwner, claimableMagt]
-  );
+  const referralMagt = useMemo(() => (isReferralOwner ? claimableMagt : 0), [isReferralOwner, claimableMagt]);
 
   const raisedUsd = useMemo(() => {
     const round = Math.max(0, Math.min(currentRound, ROUNDS_TOKENS.length - 1));
@@ -165,7 +148,7 @@ export default function App() {
       });
       setSnapshot(data);
     } catch {
-      // не ламаємо UI
+      // ignore
     } finally {
       inFlightRef.current = false;
     }
@@ -177,9 +160,7 @@ export default function App() {
   }, [addr, refreshTick]);
 
   useEffect(() => {
-    const id = window.setInterval(() => {
-      setRefreshTick((x) => x + 1);
-    }, 15_000);
+    const id = window.setInterval(() => setRefreshTick((x) => x + 1), 15_000);
     return () => window.clearInterval(id);
   }, []);
 
@@ -202,7 +183,7 @@ export default function App() {
 
       setRefreshTick((x) => x + 1);
     } catch {
-      // тихо
+      // ignore
     }
   };
 
@@ -225,7 +206,6 @@ export default function App() {
         <div className="h-[260px] sm:h-[300px] md:h-[340px] lg:h-[380px]" />
 
         <div className="grid gap-6 md:grid-cols-2">
-          {/* Your MAGT */}
           <Card>
             <div className="text-sm text-zinc-400">{t(lang, "app__your_magt")}</div>
             <div className="mt-2 text-3xl font-semibold">
@@ -247,11 +227,8 @@ export default function App() {
             </div>
           </Card>
 
-          {/* Referral MAGT */}
           <Card>
-            <div className="text-sm text-zinc-400">
-              {t(lang, "app__referral_magt")}
-            </div>
+            <div className="text-sm text-zinc-400">{t(lang, "app__referral_magt")}</div>
             <div className="mt-2 text-3xl font-semibold">
               {referralMagt.toFixed(3)} MAGT
             </div>
@@ -263,12 +240,7 @@ export default function App() {
         </div>
 
         <div className="mt-10 grid gap-6 md:grid-cols-2">
-          <PresaleProgress
-            lang={lang}
-            currentRound={currentRound}
-            soldInRound={soldInRound}
-            soldTotal={soldTotal}
-          />
+          <PresaleProgress lang={lang} currentRound={currentRound} soldInRound={soldInRound} soldTotal={soldTotal} />
 
           <Card>
             <div className="text-lg font-semibold">{t(lang, "app__stats")}</div>
@@ -285,7 +257,6 @@ export default function App() {
           <TonToMagtCalculator lang={lang} currentRound={currentRound} />
         </div>
 
-        {/* BUY */}
         <section id="buy" className="mt-10 scroll-mt-28">
           <PresaleWidget lang={lang} onTxSent={() => setRefreshTick((x) => x + 1)} />
         </section>
