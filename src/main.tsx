@@ -8,12 +8,15 @@ import { Buffer } from "buffer";
 import process from "process";
 
 import { TonConnectUIProvider } from "@tonconnect/ui-react";
-import { TONCONNECT_MANIFEST_URL } from "./lib/config";
 
 // 🌍 globals for TON / bundlers
 (globalThis as any).Buffer = Buffer;
 (globalThis as any).process = process;
 (globalThis as any).global = globalThis;
+
+// ✅ Always use a clean absolute manifest URL (no ?network=...)
+// This avoids silent failures in MyTonWallet when manifest URL is wrong/redirects.
+const MANIFEST_URL = new URL("/tonconnect-manifest.json", window.location.origin).toString();
 
 async function bootstrap() {
   const { default: App } = await import("./app/App");
@@ -23,7 +26,7 @@ async function bootstrap() {
 
   ReactDOM.createRoot(rootEl).render(
     <React.StrictMode>
-      <TonConnectUIProvider manifestUrl={TONCONNECT_MANIFEST_URL}>
+      <TonConnectUIProvider manifestUrl={MANIFEST_URL}>
         <App />
       </TonConnectUIProvider>
     </React.StrictMode>
