@@ -387,16 +387,6 @@ const MIN_FORCE_INTERVAL_MS = 8_000;
 // claimable читаємо рідше
 const CLAIMABLE_MIN_INTERVAL_MS = 30_000;
 
-function emptySnapshot(): PresaleSnapshot {
-  return {
-    currentRound: 0,
-    soldTotalNano: 0n,
-    soldInRoundNano: 0n,
-    totalRaisedNano: 0n,
-    claimableNano: 0n,
-  };
-}
-
 /* ===== main ===== */
 
 export async function getPresaleSnapshot(args?: {
@@ -495,14 +485,12 @@ export async function getPresaleSnapshot(args?: {
               data: prev?.data,
               cooldownUntil,
             });
-            return (
-              prev?.data ?? {
-                currentRound: 0,
-                soldTotalNano: 0n,
-                soldInRoundNano: 0n,
-                totalRaisedNano: 0n,
-              }
-            );
+            return prev?.data ?? {
+              currentRound: 0,
+              soldTotalNano: 0n,
+              soldInRoundNano: 0n,
+              totalRaisedNano: 0n,
+            };
           }
 
           // fallback: старий спосіб (TonAPI accounts/jettons)
