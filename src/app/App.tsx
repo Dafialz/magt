@@ -104,18 +104,9 @@ export default function App() {
 
   const currentRound = snapshot.currentRound;
 
-  const soldTotal = useMemo(
-    () => fromNano(snapshot.soldTotalNano),
-    [snapshot.soldTotalNano]
-  );
-  const soldInRound = useMemo(
-    () => fromNano(snapshot.soldInRoundNano),
-    [snapshot.soldInRoundNano]
-  );
-  const claimableMagt = useMemo(
-    () => fromNano(snapshot.claimableNano),
-    [snapshot.claimableNano]
-  );
+  const soldTotal = useMemo(() => fromNano(snapshot.soldTotalNano), [snapshot.soldTotalNano]);
+  const soldInRound = useMemo(() => fromNano(snapshot.soldInRoundNano), [snapshot.soldInRoundNano]);
+  const claimableMagt = useMemo(() => fromNano(snapshot.claimableNano), [snapshot.claimableNano]);
 
   const isReferralOwner = useMemo(() => {
     if (!addr) return false;
@@ -131,10 +122,7 @@ export default function App() {
     return false;
   }, [addr]);
 
-  const referralMagt = useMemo(
-    () => (isReferralOwner ? claimableMagt : 0),
-    [isReferralOwner, claimableMagt]
-  );
+  const referralMagt = useMemo(() => (isReferralOwner ? claimableMagt : 0), [isReferralOwner, claimableMagt]);
 
   const raisedUsd = useMemo(() => {
     const round = Math.max(0, Math.min(currentRound, ROUNDS_TOKENS.length - 1));
@@ -160,7 +148,7 @@ export default function App() {
       });
       setSnapshot(data);
     } catch {
-      // ignore
+      // не ламаємо UI
     } finally {
       inFlightRef.current = false;
     }
@@ -172,8 +160,11 @@ export default function App() {
   }, [addr, refreshTick]);
 
   useEffect(() => {
-    // ✅ 60s polling щоб не ловити TonAPI 429
-    const id = window.setInterval(() => setRefreshTick((x) => x + 1), 60_000);
+    // ✅ 60s polling (і тільки коли вкладка активна), щоб не ловити TonAPI 429
+    const id = window.setInterval(() => {
+      if (document.hidden) return;
+      setRefreshTick((x) => x + 1);
+    }, 60_000);
     return () => window.clearInterval(id);
   }, []);
 
@@ -194,7 +185,7 @@ export default function App() {
         ],
       });
 
-      // разово форсимо оновлення
+      // після claim — оновити баланс/прогрес
       setRefreshTick((x) => x + 1);
     } catch {
       // ignore
@@ -222,9 +213,7 @@ export default function App() {
         <div className="grid gap-6 md:grid-cols-2">
           <Card>
             <div className="text-sm text-zinc-400">{t(lang, "app__your_magt")}</div>
-            <div className="mt-2 text-3xl font-semibold">
-              {claimableMagt.toFixed(3)} MAGT
-            </div>
+            <div className="mt-2 text-3xl font-semibold">{claimableMagt.toFixed(3)} MAGT</div>
 
             <button
               disabled={!claimEnabled}
@@ -243,9 +232,7 @@ export default function App() {
 
           <Card>
             <div className="text-sm text-zinc-400">{t(lang, "app__referral_magt")}</div>
-            <div className="mt-2 text-3xl font-semibold">
-              {referralMagt.toFixed(3)} MAGT
-            </div>
+            <div className="mt-2 text-3xl font-semibold">{referralMagt.toFixed(3)} MAGT</div>
 
             <div className="mt-4">
               <ReferralButton lang={lang} />
@@ -254,21 +241,12 @@ export default function App() {
         </div>
 
         <div className="mt-10 grid gap-6 md:grid-cols-2">
-          <PresaleProgress
-            lang={lang}
-            currentRound={currentRound}
-            soldInRound={soldInRound}
-            soldTotal={soldTotal}
-          />
+          <PresaleProgress lang={lang} currentRound={currentRound} soldInRound={soldInRound} soldTotal={soldTotal} />
 
           <Card>
             <div className="text-lg font-semibold">{t(lang, "app__stats")}</div>
-            <div className="mt-3 text-sm text-zinc-400">
-              Raised (est.): ${raisedUsd.toLocaleString()}
-            </div>
-            <div className="mt-2 text-xs text-zinc-500 break-all">
-              Presale: {PRESALE_CONTRACT}
-            </div>
+            <div className="mt-3 text-sm text-zinc-400">Raised (est.): ${raisedUsd.toLocaleString()}</div>
+            <div className="mt-2 text-xs text-zinc-500 break-all">Presale: {PRESALE_CONTRACT}</div>
           </Card>
         </div>
 

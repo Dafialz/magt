@@ -24,8 +24,8 @@ export type PresaleSnapshot = {
   currentRound: number;
   soldTotalNano: bigint;
   soldInRoundNano: bigint;
-  totalRaisedNano: bigint; // ✅ getter totalRaisedNano()
-  claimableNano: bigint; // ✅ getter claimableNano(address)
+  totalRaisedNano: bigint; // getter totalRaisedNano()
+  claimableNano: bigint; // getter claimableNano(address)
 };
 
 /* ===== price (як було у тебе) ===== */
@@ -59,6 +59,10 @@ export function fromNano(n: bigint): number {
   return Number(`${head}.${tail}`);
 }
 
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 class RateLimitError extends Error {
   retryAfterMs: number;
   constructor(retryAfterMs: number) {
@@ -68,7 +72,6 @@ class RateLimitError extends Error {
 }
 
 function retryAfterToMs(h: string | null): number {
-  // TonAPI може віддати Retry-After в секундах
   if (!h) return 10_000;
   const n = Number(h);
   if (Number.isFinite(n) && n > 0) return Math.min(60_000, n * 1000);
@@ -81,8 +84,8 @@ async function fetchJson<T>(url: string): Promise<T> {
   if (r.status === 429) {
     throw new RateLimitError(retryAfterToMs(r.headers.get("retry-after")));
   }
-
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
+
   return (await r.json()) as T;
 }
 
@@ -125,8 +128,6 @@ async function tonApiRunGetMethod(
 ): Promise<TonApiRunGetMethodResp> {
   const qs = new URLSearchParams();
   for (const a of args) qs.append("args", a);
-
-  // важливо: не робимо надто частих запитів однакових (буде 429)
   qs.set("t", String(Date.now()));
 
   const url = `${TONAPI_BASE}/v2/blockchain/accounts/${accountId}/methods/${encodeURIComponent(
@@ -142,16 +143,13 @@ function addressArgToBocB64(addr: string): string {
   return bytesToBase64(cell.toBoc({ idx: false }));
 }
 
-/**
- * ✅ IMPORTANT:
- * TonAPI для getter з Address аргументом очікує BOC(base64) cell.
- * Friendly address ("EQ..", "0Q..") часто дає 0 або невірний результат.
- */
 async function getClaimableFromContract(
   presaleAddr: string,
   walletAddr: string
 ): Promise<bigint> {
+  // ✅ TonAPI для getter з Address аргументом очікує BOC(base64) cell.
   const bocArg = addressArgToBocB64(walletAddr);
+
   const r = await tonApiRunGetMethod(presaleAddr, "claimableNano", [bocArg]);
   const exit = r.exit_code ?? r.exitCode ?? 1;
   if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
@@ -202,7 +200,7 @@ type CacheEntry = {
   ts: number;
   data?: PresaleSnapshot;
   inFlight?: Promise<PresaleSnapshot>;
-  cooldownUntil?: number; // після 429
+  cooldownUntil?: number;
 };
 
 const SNAPSHOT_CACHE = new Map<string, CacheEntry>();
@@ -211,8 +209,8 @@ function cacheKey(presale: string, wallet?: string) {
   return `${presale}::${wallet ?? "-"}`;
 }
 
-// один snapshot = 4–5 запитів, тому робимо анти-спам
-const MIN_FETCH_INTERVAL_MS = 12_000;
+const MIN_FETCH_INTERVAL_MS = 12_000; // захист від спаму
+const BETWEEN_METHOD_DELAY_MS = 250;  // пауза між getter'ами
 
 function nowMs() {
   return Date.now();
@@ -231,7 +229,7 @@ export async function getPresaleSnapshot(args?: {
   const t0 = nowMs();
   const entry: CacheEntry = SNAPSHOT_CACHE.get(key) ?? { ts: 0 };
 
-  // cooldown після 429 — не спамимо, повертаємо останні дані
+  // якщо TonAPI дав 429 — не робимо нові запити до cooldown
   if (entry.cooldownUntil && t0 < entry.cooldownUntil) {
     if (entry.data) return entry.data;
     return {
@@ -243,22 +241,27 @@ export async function getPresaleSnapshot(args?: {
     };
   }
 
-  // coalesce
+  // якщо вже є запит — повертаємо той самий проміс
   if (entry.inFlight) return entry.inFlight;
 
-  // кеш (щоб не робити 4–5 запитів кожні 1–2 сек)
+  // якщо недавно вже фетчили — повертаємо кеш
   if (entry.data && t0 - entry.ts < MIN_FETCH_INTERVAL_MS) {
     return entry.data;
   }
 
   const doFetch = (async () => {
     try {
-      const [rRaised, rSold, rRound, rRoundSold] = await Promise.all([
-        tonApiRunGetMethod(presaleAddress, "totalRaisedNano"),
-        tonApiRunGetMethod(presaleAddress, "totalSoldNano"),
-        tonApiRunGetMethod(presaleAddress, "currentRound"),
-        tonApiRunGetMethod(presaleAddress, "currentRoundSoldNano"),
-      ]);
+      // ✅ ВАЖЛИВО: НЕ Promise.all, щоб не ловити 429
+      const rRaised = await tonApiRunGetMethod(presaleAddress, "totalRaisedNano");
+      await sleep(BETWEEN_METHOD_DELAY_MS);
+
+      const rSold = await tonApiRunGetMethod(presaleAddress, "totalSoldNano");
+      await sleep(BETWEEN_METHOD_DELAY_MS);
+
+      const rRound = await tonApiRunGetMethod(presaleAddress, "currentRound");
+      await sleep(BETWEEN_METHOD_DELAY_MS);
+
+      const rRoundSold = await tonApiRunGetMethod(presaleAddress, "currentRoundSoldNano");
 
       const ok =
         (rRaised.exit_code ?? rRaised.exitCode ?? 1) === 0 &&
@@ -283,6 +286,7 @@ export async function getPresaleSnapshot(args?: {
 
       let claimableNano = 0n;
       if (walletAddress) {
+        await sleep(BETWEEN_METHOD_DELAY_MS);
         claimableNano = await getClaimableFromContract(presaleAddress, walletAddress);
       }
 
@@ -297,7 +301,7 @@ export async function getPresaleSnapshot(args?: {
       SNAPSHOT_CACHE.set(key, { ts: nowMs(), data });
       return data;
     } catch (e: any) {
-      // 429 → cooldown і повертаємо попередні дані
+      // 429 => cooldown + повертаємо попередні дані (не 0)
       if (e instanceof RateLimitError) {
         const prev = SNAPSHOT_CACHE.get(key);
         SNAPSHOT_CACHE.set(key, {
@@ -308,11 +312,11 @@ export async function getPresaleSnapshot(args?: {
         if (prev?.data) return prev.data;
       }
 
-      // якщо вже є попередні дані — показуємо їх
+      // якщо є попередні дані — показуємо їх
       const prev = SNAPSHOT_CACHE.get(key);
       if (prev?.data) return prev.data;
 
-      // fallback на старе (але теж може 429)
+      // fallback (може теж 429)
       try {
         const totalRaisedNano = await tonApiGetAccountBalanceNano(presaleAddress);
 
@@ -361,10 +365,9 @@ export async function getPresaleSnapshot(args?: {
         };
       }
     } finally {
-      // прибираємо inFlight
       const cur = SNAPSHOT_CACHE.get(key) ?? { ts: 0 };
       SNAPSHOT_CACHE.set(key, {
-        ts: cur.ts ?? 0,
+        ts: cur.ts,
         data: cur.data,
         cooldownUntil: cur.cooldownUntil,
       });
