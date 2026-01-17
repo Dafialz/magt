@@ -16,12 +16,19 @@ export function ReferralButton({
 
   const link = React.useMemo(() => {
     const base = window.location.origin;
-    const ref = address ? encodeURIComponent(address) : "";
-    return ref ? `${base}/?ref=${ref}` : `${base}/`;
+
+    // ✅ keep existing params (network=testnet etc.)
+    const params = new URLSearchParams(window.location.search);
+
+    if (address) params.set("ref", address);
+    else params.delete("ref");
+
+    const qs = params.toString();
+    return qs ? `${base}/?${qs}` : `${base}/`;
   }, [address]);
 
   async function copy() {
-    // ✅ important: store owner first, then copy
+    // ✅ store owner first
     if (address) {
       try {
         localStorage.setItem(LS_REF_OWNER, address);
