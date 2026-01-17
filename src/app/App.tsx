@@ -78,17 +78,16 @@ function bytesToBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
-// Claim payload: "ICLAI" + query_id (uint64)
+// Claim payload: opcode "CLAI" (0x434C4149) + query_id (uint64)
 function buildClaimPayloadBase64(): string {
-  const tag = "ICLAI";
   const qid = BigInt(Date.now());
 
-  // storeBuffer expects Node.js Buffer; in browser we store ASCII bytes manually
-  const b = beginCell();
-  for (let i = 0; i < tag.length; i++) {
-    b.storeUint(tag.charCodeAt(i) & 0xff, 8);
-  }
-  const cell = b.storeUint(qid, 64).endCell();
+  // Tact message(0x434C4149) Claim { query_id: Int }
+  // Encode: op (32 bits) + query_id (uint64)
+  const cell = beginCell()
+    .storeUint(0x434c4149, 32) // "CLAI"
+    .storeUint(qid, 64)
+    .endCell();
 
   return bytesToBase64(cell.toBoc({ idx: false }));
 }
