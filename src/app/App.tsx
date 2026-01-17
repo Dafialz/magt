@@ -177,35 +177,36 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addr, refreshTick]);
 
-  // ✅ polling 60s і тільки коли вкладка активна
+  // ✅ polling раз на 2 хвилини і тільки коли вкладка активна (щоб не ловити 429)
   useEffect(() => {
     const id = window.setInterval(() => {
       if (document.hidden) return;
       setRefreshTick((x) => x + 1);
-    }, 60_000);
+    }, 120_000);
 
     return () => window.clearInterval(id);
   }, []);
 
   const claimEnabled = CLAIM_ENABLED_GLOBALLY && !!addr;
 
-  // ✅ після TX: TonAPI/індексер на testnet часто запізнюється.
-  // Тому після покупки/клейму робимо короткий polling ~60s.
+  /**
+   * ✅ Після TX НЕ робимо частий polling (4s) — це дає toncenter 429.
+   * Робимо 3 контрольні рефреші з великими паузами.
+   */
   const forceRefreshAfterTx = () => {
-    // одразу
+    if (document.hidden) return;
+
+    // одразу (але getPresaleSnapshot має власний rate-limit)
     reloadOnchain(true);
 
-    // швидкі рефреші
-    window.setTimeout(() => reloadOnchain(true), 1500);
-    window.setTimeout(() => reloadOnchain(true), 8000);
+    // контрольні
+    window.setTimeout(() => {
+      if (!document.hidden) reloadOnchain(true);
+    }, 12_000);
 
-    // polling до 60 секунд (кожні 4s), тільки якщо вкладка активна
-    const started = Date.now();
-    const id = window.setInterval(() => {
-      if (document.hidden) return;
-      reloadOnchain(true);
-      if (Date.now() - started > 60_000) window.clearInterval(id);
-    }, 4000);
+    window.setTimeout(() => {
+      if (!document.hidden) reloadOnchain(true);
+    }, 30_000);
   };
 
   const onClaimClick = async () => {

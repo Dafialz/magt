@@ -67,17 +67,17 @@ export function fromNano(n: bigint): number {
 
 class RateLimitError extends Error {
   retryAfterMs: number;
-  constructor(retryAfterMs: number) {
-    super("TONAPI_RATE_LIMIT");
+  constructor(retryAfterMs: number, msg = "RATE_LIMIT") {
+    super(msg);
     this.retryAfterMs = retryAfterMs;
   }
 }
 
 function retryAfterToMs(h: string | null): number {
-  if (!h) return 10_000;
+  if (!h) return 30_000;
   const n = Number(h);
-  if (Number.isFinite(n) && n > 0) return Math.min(60_000, n * 1000);
-  return 10_000;
+  if (Number.isFinite(n) && n > 0) return Math.min(120_000, n * 1000);
+  return 30_000;
 }
 
 async function sleep(ms: number) {
@@ -87,7 +87,6 @@ async function sleep(ms: number) {
 async function fetchJson<T>(
   url: string,
   opts?: {
-    /** How many times to retry on TONAPI rate limit (429). */
     retries?: number;
   }
 ): Promise<T> {
@@ -99,37 +98,31 @@ async function fetchJson<T>(
       r = await fetch(url, {
         cache: "no-store",
         headers: {
-          // extra anti-cache for some CDNs
           "cache-control": "no-cache",
           pragma: "no-cache",
         },
       });
     } catch {
-      // network/cors/blocked
       throw new Error("FETCH_FAILED");
     }
 
     if (r.status === 429) {
       const retryAfterMs = retryAfterToMs(r.headers.get("retry-after"));
-
-      // if we still have attempts left -> short wait then retry
       if (attempt < retries) {
         await sleep(Math.min(1500, retryAfterMs));
         continue;
       }
-
-      throw new RateLimitError(retryAfterMs);
+      throw new RateLimitError(retryAfterMs, "TONAPI_RATE_LIMIT");
     }
 
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return (await r.json()) as T;
   }
 
-  // unreachable
   throw new Error("UNREACHABLE");
 }
 
-type TonApiRunGetMethodResp = {
+type TonRunGetResp = {
   exit_code?: number;
   exitCode?: number;
   stack?: any[];
@@ -149,8 +142,6 @@ function bytesToBase64(bytes: Uint8Array) {
 }
 
 function stackItemToBigInt(item: any): bigint {
-  // TonAPI v2 може повертати stack як:
-  // ["num","0x..."] або ["num","123"] або {type:"num", value:"..."}
   const t = Array.isArray(item) ? item[0] : item?.type;
   const v = Array.isArray(item) ? item[1] : item?.value;
 
@@ -175,72 +166,121 @@ function stackItemToBigInt(item: any): bigint {
   return 0n;
 }
 
+/* ===========================
+   ✅ TonAPI (no burst)
+   =========================== */
+
 async function tonApiRunGetMethod(
   accountId: string,
   methodName: string,
   args: string[] = [],
   opts?: { retries?: number }
-): Promise<TonApiRunGetMethodResp> {
+): Promise<TonRunGetResp> {
   const qs = new URLSearchParams();
   for (const a of args) qs.append("args", a);
-
-  // анти-кеш на CDN
   qs.set("t", String(Date.now()));
 
   const url = `${TONAPI_BASE}/v2/blockchain/accounts/${accountId}/methods/${encodeURIComponent(
     methodName
   )}?${qs.toString()}`;
 
-  return await fetchJson<TonApiRunGetMethodResp>(url, { retries: opts?.retries ?? 0 });
+  return await fetchJson<TonRunGetResp>(url, { retries: opts?.retries ?? 0 });
 }
 
-/**
- * Toncenter JSON-RPC fallback (коли TonAPI не доступний)
- */
+/* ===========================
+   ✅ Toncenter JSON-RPC (rate limited)
+   =========================== */
+
+let TONCENTER_QUEUE: Promise<void> = Promise.resolve();
+let TONCENTER_LAST_AT = 0;
+
+// без API key ставимо більший інтервал, з key — менший
+function toncenterMinIntervalMs() {
+  return TONCENTER_API_KEY ? 250 : 1500;
+}
+
+async function toncenterSchedule() {
+  // послідовна черга
+  const prev = TONCENTER_QUEUE;
+  let release!: () => void;
+  TONCENTER_QUEUE = new Promise<void>((r) => (release = r));
+  await prev;
+
+  try {
+    const wait = TONCENTER_LAST_AT + toncenterMinIntervalMs() - Date.now();
+    if (wait > 0) await sleep(wait);
+  } finally {
+    // оновимо timestamp, але release робимо після реального fetch (нижче)
+  }
+
+  return release;
+}
+
 async function toncenterRunGetMethod(
   accountId: string,
   methodName: string,
   stack: any[] = []
-): Promise<TonApiRunGetMethodResp> {
-  const body = {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "runGetMethod",
-    params: {
-      address: accountId,
-      method: methodName,
-      stack,
-    },
-  };
+): Promise<TonRunGetResp> {
+  const release = await toncenterSchedule();
 
-  let r: Response;
   try {
-    r = await fetch(TONCENTER_JSONRPC, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(TONCENTER_API_KEY ? { "X-API-Key": TONCENTER_API_KEY } : {}),
+    const body = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "runGetMethod",
+      params: {
+        address: accountId,
+        method: methodName,
+        stack,
       },
-      body: JSON.stringify(body),
-    });
-  } catch {
-    throw new Error("TONCENTER_FETCH_FAILED");
+    };
+
+    let r: Response;
+    try {
+      r = await fetch(TONCENTER_JSONRPC, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(TONCENTER_API_KEY ? { "X-API-Key": TONCENTER_API_KEY } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      throw new Error("TONCENTER_FETCH_FAILED");
+    } finally {
+      TONCENTER_LAST_AT = Date.now();
+      release();
+    }
+
+    if (r.status === 429) {
+      // toncenter часто не дає retry-after, ставимо 60s
+      throw new RateLimitError(60_000, "TONCENTER_RATE_LIMIT");
+    }
+
+    if (!r.ok) throw new Error(`TONCENTER_HTTP_${r.status}`);
+
+    const j = (await r.json()) as any;
+    if (j?.error) throw new Error("TONCENTER_RPC_ERROR");
+
+    const res = j?.result ?? j?.result?.result;
+    if (!res) throw new Error("TONCENTER_NO_RESULT");
+
+    return {
+      exit_code: res.exit_code ?? res.exitCode,
+      stack: res.stack,
+    };
+  } catch (e) {
+    // ensure queue released even on unexpected path (safety)
+    try {
+      release();
+    } catch {}
+    throw e;
   }
-
-  if (!r.ok) throw new Error(`TONCENTER_HTTP_${r.status}`);
-
-  const j = (await r.json()) as any;
-  if (j?.error) throw new Error("TONCENTER_RPC_ERROR");
-
-  // toncenter returns: { result: { exit_code, stack, ... } }
-  const res = j?.result ?? j?.result?.result;
-  if (!res) throw new Error("TONCENTER_NO_RESULT");
-
-  return {
-    exit_code: res.exit_code ?? res.exitCode,
-    stack: res.stack,
-  };
 }
+
+/* ===========================
+   ✅ claimable argument helpers
+   =========================== */
 
 function addressArgToBocB64(addr: string): string {
   const a = Address.parse(addr);
@@ -248,31 +288,27 @@ function addressArgToBocB64(addr: string): string {
   return bytesToBase64(cell.toBoc({ idx: false }));
 }
 
-/**
- * TonAPI getter з Address аргументом очікує args = [BOC(base64) cell]
- * Toncenter expects stack = [["slice", BOC(base64)]]
- */
-async function getClaimableFromContract(
+async function getClaimableFromContractTonApi(
   presaleAddr: string,
   walletAddr: string,
   opts?: { retries?: number }
 ): Promise<bigint> {
   const bocArg = addressArgToBocB64(walletAddr);
+  const r = await tonApiRunGetMethod(presaleAddr, "claimableNano", [bocArg], opts);
+  const exit = r.exit_code ?? r.exitCode ?? 1;
+  if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
+  return 0n;
+}
 
-  // 1) try TonAPI
-  try {
-    const r = await tonApiRunGetMethod(presaleAddr, "claimableNano", [bocArg], opts);
-    const exit = r.exit_code ?? r.exitCode ?? 1;
-    if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
-  } catch {
-    // ignore -> fallback
-  }
-
-  // 2) fallback Toncenter
-  const r2 = await toncenterRunGetMethod(presaleAddr, "claimableNano", [["slice", bocArg]]);
-  const exit2 = r2.exit_code ?? r2.exitCode ?? 1;
-  if (exit2 === 0 && r2.stack?.length) return stackItemToBigInt(r2.stack[0]);
-
+async function getClaimableFromContractToncenter(
+  presaleAddr: string,
+  walletAddr: string
+): Promise<bigint> {
+  const bocArg = addressArgToBocB64(walletAddr);
+  // toncenter expects stack items like ["slice", base64_boc]
+  const r = await toncenterRunGetMethod(presaleAddr, "claimableNano", [["slice", bocArg]]);
+  const exit = r.exit_code ?? r.exitCode ?? 1;
+  if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
   return 0n;
 }
 
@@ -321,6 +357,10 @@ type CacheEntry = {
   data?: PresaleSnapshot;
   inFlight?: Promise<PresaleSnapshot>;
   cooldownUntil?: number;
+
+  // claimable окремо (щоб не дергати кожен раз)
+  claimableTs?: number;
+  claimable?: bigint;
 };
 
 const SNAPSHOT_CACHE = new Map<string, CacheEntry>();
@@ -329,7 +369,13 @@ function cacheKey(presale: string, wallet?: string) {
   return `${presale}::${wallet ?? "-"}`;
 }
 
-const MIN_FETCH_INTERVAL_MS = 8_000;
+// звичайний режим
+const MIN_FETCH_INTERVAL_MS = 20_000;
+// force режим (після TX) — теж обмежуємо, щоб не забанили
+const MIN_FORCE_INTERVAL_MS = 8_000;
+
+// claimable читаємо рідше
+const CLAIMABLE_MIN_INTERVAL_MS = 30_000;
 
 function emptySnapshot(): PresaleSnapshot {
   return {
@@ -346,56 +392,60 @@ function emptySnapshot(): PresaleSnapshot {
 export async function getPresaleSnapshot(args?: {
   presaleAddress?: string;
   walletAddress?: string;
-  force?: boolean; // ✅ bypass cache після TX
+  force?: boolean;
 }): Promise<PresaleSnapshot> {
   const presaleAddress = args?.presaleAddress ?? PRESALE_CONTRACT;
   const walletAddress = args?.walletAddress;
   const force = !!args?.force;
 
-  // When force=true (after TX) we allow a small retry window on 429.
-  const tonApiRetries = force ? 1 : 0;
-
   const key = cacheKey(presaleAddress, walletAddress);
-  const t0 = Date.now();
+  const now = Date.now();
   const entry: CacheEntry = SNAPSHOT_CACHE.get(key) ?? { ts: 0 };
 
-  // cooldown після 429
-  if (!force && entry.cooldownUntil && t0 < entry.cooldownUntil) {
+  // cooldown після rate-limit (і в force теж поважаємо, щоб не доламати)
+  if (entry.cooldownUntil && now < entry.cooldownUntil) {
     return entry.data ?? emptySnapshot();
   }
 
   // coalesce
   if (entry.inFlight) return entry.inFlight;
 
-  // cache interval
-  if (!force && entry.data && t0 - entry.ts < MIN_FETCH_INTERVAL_MS) {
+  // cache interval (включно з force, але менший)
+  const minInterval = force ? MIN_FORCE_INTERVAL_MS : MIN_FETCH_INTERVAL_MS;
+  if (entry.data && now - entry.ts < minInterval) {
     return entry.data;
   }
 
   const doFetch = (async () => {
     try {
-      // ✅ основне: читаємо getter-и контракту
-      let rRaised: TonApiRunGetMethodResp;
-      let rSold: TonApiRunGetMethodResp;
-      let rRound: TonApiRunGetMethodResp;
-      let rRoundSold: TonApiRunGetMethodResp;
-
+      // ✅ читаємо getter-и СЕРІЙНО (без burst Promise.all)
       // 1) Try TonAPI
+      let rRaised: TonRunGetResp | null = null;
+      let rSold: TonRunGetResp | null = null;
+      let rRound: TonRunGetResp | null = null;
+      let rRoundSold: TonRunGetResp | null = null;
+
+      const tonApiRetries = force ? 1 : 0;
+
       try {
-        [rRaised, rSold, rRound, rRoundSold] = await Promise.all([
-          tonApiRunGetMethod(presaleAddress, "totalRaisedNano", [], { retries: tonApiRetries }),
-          tonApiRunGetMethod(presaleAddress, "totalSoldNano", [], { retries: tonApiRetries }),
-          tonApiRunGetMethod(presaleAddress, "currentRound", [], { retries: tonApiRetries }),
-          tonApiRunGetMethod(presaleAddress, "currentRoundSoldNano", [], { retries: tonApiRetries }),
-        ]);
-      } catch {
-        // 2) Fallback Toncenter
-        [rRaised, rSold, rRound, rRoundSold] = await Promise.all([
-          toncenterRunGetMethod(presaleAddress, "totalRaisedNano"),
-          toncenterRunGetMethod(presaleAddress, "totalSoldNano"),
-          toncenterRunGetMethod(presaleAddress, "currentRound"),
-          toncenterRunGetMethod(presaleAddress, "currentRoundSoldNano"),
-        ]);
+        rRaised = await tonApiRunGetMethod(presaleAddress, "totalRaisedNano", [], {
+          retries: tonApiRetries,
+        });
+        rSold = await tonApiRunGetMethod(presaleAddress, "totalSoldNano", [], {
+          retries: tonApiRetries,
+        });
+        rRound = await tonApiRunGetMethod(presaleAddress, "currentRound", [], {
+          retries: tonApiRetries,
+        });
+        rRoundSold = await tonApiRunGetMethod(presaleAddress, "currentRoundSoldNano", [], {
+          retries: tonApiRetries,
+        });
+      } catch (e) {
+        // 2) fallback Toncenter (також серійно і з rate-limit)
+        rRaised = await toncenterRunGetMethod(presaleAddress, "totalRaisedNano");
+        rSold = await toncenterRunGetMethod(presaleAddress, "totalSoldNano");
+        rRound = await toncenterRunGetMethod(presaleAddress, "currentRound");
+        rRoundSold = await toncenterRunGetMethod(presaleAddress, "currentRoundSoldNano");
       }
 
       const ok =
@@ -415,11 +465,26 @@ export async function getPresaleSnapshot(args?: {
       const currentRound = Number(stackItemToBigInt(rRound.stack![0]));
       const soldInRoundNano = stackItemToBigInt(rRoundSold.stack![0]);
 
-      let claimableNano = 0n;
+      // ✅ claimable — рідше
+      let claimableNano = entry.claimable ?? 0n;
       if (walletAddress) {
-        claimableNano = await getClaimableFromContract(presaleAddress, walletAddress, {
-          retries: tonApiRetries,
-        });
+        const needClaimable =
+          force ||
+          !entry.claimableTs ||
+          now - (entry.claimableTs ?? 0) >= CLAIMABLE_MIN_INTERVAL_MS;
+
+        if (needClaimable) {
+          try {
+            claimableNano = await getClaimableFromContractTonApi(presaleAddress, walletAddress, {
+              retries: tonApiRetries,
+            });
+          } catch {
+            // fallback toncenter
+            claimableNano = await getClaimableFromContractToncenter(presaleAddress, walletAddress);
+          }
+        }
+      } else {
+        claimableNano = 0n;
       }
 
       const data: PresaleSnapshot = {
@@ -430,26 +495,33 @@ export async function getPresaleSnapshot(args?: {
         claimableNano: claimableNano < 0n ? 0n : claimableNano,
       };
 
-      SNAPSHOT_CACHE.set(key, { ts: Date.now(), data });
+      SNAPSHOT_CACHE.set(key, {
+        ts: Date.now(),
+        data,
+        claimableTs: walletAddress ? Date.now() : undefined,
+        claimable: walletAddress ? data.claimableNano : undefined,
+      });
+
       return data;
     } catch (e: any) {
-      // 429 -> cooldown + повертаємо попереднє значення, щоб UI не ставав 0
       if (e instanceof RateLimitError) {
         const prev = SNAPSHOT_CACHE.get(key);
-        // Якщо force=true (після TX) — не ставимо довгий cooldown,
-        // щоб polling міг одразу повторити запит.
-        if (!force) {
-          const cooldownUntil = Date.now() + e.retryAfterMs;
-          SNAPSHOT_CACHE.set(key, {
-            ts: prev?.ts ?? 0,
-            data: prev?.data,
-            cooldownUntil,
-          });
-        }
+
+        // ставимо cooldown 60s (реально допомагає з toncenter 429)
+        const cooldownUntil = Date.now() + Math.max(30_000, e.retryAfterMs);
+
+        SNAPSHOT_CACHE.set(key, {
+          ts: prev?.ts ?? 0,
+          data: prev?.data,
+          cooldownUntil,
+          claimableTs: prev?.claimableTs,
+          claimable: prev?.claimable,
+        });
+
         return prev?.data ?? emptySnapshot();
       }
 
-      // fallback: старий спосіб (не ідеальний, але краще ніж 0)
+      // fallback: старий спосіб (TonAPI accounts/jettons)
       try {
         const totalRaisedNano = await tonApiGetAccountBalanceNano(presaleAddress);
 
@@ -463,7 +535,6 @@ export async function getPresaleSnapshot(args?: {
 
         const { currentRound, soldInRoundNano } = calcRoundFromSold(soldTotalNano);
 
-        // тут claimable як jetton balance гаманця — НЕ те саме, але fallback
         let claimableNano = 0n;
         if (walletAddress) {
           claimableNano = await tonApiGetWalletJettonBalanceNano(walletAddress, JETTON_MASTER);
