@@ -80,7 +80,7 @@ function buildClaimPayloadBase64(): string {
 
   const cell = beginCell()
     .storeUint(0x434c4149, 32) // "CLAI"
-    .storeInt(qid, 257)        // Int (Tact)
+    .storeInt(qid, 257) // Int (Tact)
     .endCell();
 
   return bytesToBase64(cell.toBoc({ idx: false }));
@@ -104,9 +104,18 @@ export default function App() {
 
   const currentRound = snapshot.currentRound;
 
-  const soldTotal = useMemo(() => fromNano(snapshot.soldTotalNano), [snapshot.soldTotalNano]);
-  const soldInRound = useMemo(() => fromNano(snapshot.soldInRoundNano), [snapshot.soldInRoundNano]);
-  const claimableMagt = useMemo(() => fromNano(snapshot.claimableNano), [snapshot.claimableNano]);
+  const soldTotal = useMemo(
+    () => fromNano(snapshot.soldTotalNano),
+    [snapshot.soldTotalNano]
+  );
+  const soldInRound = useMemo(
+    () => fromNano(snapshot.soldInRoundNano),
+    [snapshot.soldInRoundNano]
+  );
+  const claimableMagt = useMemo(
+    () => fromNano(snapshot.claimableNano),
+    [snapshot.claimableNano]
+  );
 
   const isReferralOwner = useMemo(() => {
     if (!addr) return false;
@@ -122,7 +131,10 @@ export default function App() {
     return false;
   }, [addr]);
 
-  const referralMagt = useMemo(() => (isReferralOwner ? claimableMagt : 0), [isReferralOwner, claimableMagt]);
+  const referralMagt = useMemo(
+    () => (isReferralOwner ? claimableMagt : 0),
+    [isReferralOwner, claimableMagt]
+  );
 
   const raisedUsd = useMemo(() => {
     const round = Math.max(0, Math.min(currentRound, ROUNDS_TOKENS.length - 1));
@@ -160,7 +172,8 @@ export default function App() {
   }, [addr, refreshTick]);
 
   useEffect(() => {
-    const id = window.setInterval(() => setRefreshTick((x) => x + 1), 15_000);
+    // ✅ 60s polling щоб не ловити TonAPI 429
+    const id = window.setInterval(() => setRefreshTick((x) => x + 1), 60_000);
     return () => window.clearInterval(id);
   }, []);
 
@@ -181,6 +194,7 @@ export default function App() {
         ],
       });
 
+      // разово форсимо оновлення
       setRefreshTick((x) => x + 1);
     } catch {
       // ignore
@@ -240,7 +254,12 @@ export default function App() {
         </div>
 
         <div className="mt-10 grid gap-6 md:grid-cols-2">
-          <PresaleProgress lang={lang} currentRound={currentRound} soldInRound={soldInRound} soldTotal={soldTotal} />
+          <PresaleProgress
+            lang={lang}
+            currentRound={currentRound}
+            soldInRound={soldInRound}
+            soldTotal={soldTotal}
+          />
 
           <Card>
             <div className="text-lg font-semibold">{t(lang, "app__stats")}</div>
