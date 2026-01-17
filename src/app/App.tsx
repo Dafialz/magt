@@ -32,7 +32,12 @@ import {
 import { safeValidUntil, toNanoTon } from "../lib/ton";
 import { t } from "../lib/i18n";
 
+/* =====================================================
+   ✅ CLAIM ENABLED
+   ===================================================== */
 const CLAIM_ENABLED_GLOBALLY = true;
+/* ===================================================== */
+
 const LS_REF_OWNER = "magt_ref_owner";
 
 function normAddr(s: string): string | null {
@@ -73,14 +78,12 @@ function bytesToBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
-// ✅ Claim payload MUST match presale.tact:
-// message(0x434C4149) Claim { query_id: Int }
+// ✅ Claim payload: opcode "CLAI" (0x434C4149) + query_id:Int (257 bits)
 function buildClaimPayloadBase64(): string {
   const qid = BigInt(Date.now());
-
   const cell = beginCell()
     .storeUint(0x434c4149, 32) // "CLAI"
-    .storeInt(qid, 257) // Int (Tact)
+    .storeInt(qid, 257) // Claim.query_id: Int
     .endCell();
 
   return bytesToBase64(cell.toBoc({ idx: false }));
@@ -104,9 +107,19 @@ export default function App() {
 
   const currentRound = snapshot.currentRound;
 
-  const soldTotal = useMemo(() => fromNano(snapshot.soldTotalNano), [snapshot.soldTotalNano]);
-  const soldInRound = useMemo(() => fromNano(snapshot.soldInRoundNano), [snapshot.soldInRoundNano]);
-  const claimableMagt = useMemo(() => fromNano(snapshot.claimableNano), [snapshot.claimableNano]);
+  const soldTotal = useMemo(
+    () => fromNano(snapshot.soldTotalNano),
+    [snapshot.soldTotalNano]
+  );
+  const soldInRound = useMemo(
+    () => fromNano(snapshot.soldInRoundNano),
+    [snapshot.soldInRoundNano]
+  );
+
+  const claimableMagt = useMemo(
+    () => fromNano(snapshot.claimableNano),
+    [snapshot.claimableNano]
+  );
 
   const isReferralOwner = useMemo(() => {
     if (!addr) return false;
@@ -122,7 +135,10 @@ export default function App() {
     return false;
   }, [addr]);
 
-  const referralMagt = useMemo(() => (isReferralOwner ? claimableMagt : 0), [isReferralOwner, claimableMagt]);
+  const referralMagt = useMemo(
+    () => (isReferralOwner ? claimableMagt : 0),
+    [isReferralOwner, claimableMagt]
+  );
 
   const raisedUsd = useMemo(() => {
     const round = Math.max(0, Math.min(currentRound, ROUNDS_TOKENS.length - 1));
@@ -160,11 +176,12 @@ export default function App() {
   }, [addr, refreshTick]);
 
   useEffect(() => {
-    // ✅ 60s polling (і тільки коли вкладка активна), щоб не ловити TonAPI 429
+    // ✅ 60s polling і тільки коли вкладка активна (щоб не спамити TonAPI)
     const id = window.setInterval(() => {
       if (document.hidden) return;
       setRefreshTick((x) => x + 1);
     }, 60_000);
+
     return () => window.clearInterval(id);
   }, []);
 
@@ -185,10 +202,10 @@ export default function App() {
         ],
       });
 
-      // після claim — оновити баланс/прогрес
+      // після claim — оновити
       setRefreshTick((x) => x + 1);
     } catch {
-      // ignore
+      // тихо
     }
   };
 
@@ -213,7 +230,9 @@ export default function App() {
         <div className="grid gap-6 md:grid-cols-2">
           <Card>
             <div className="text-sm text-zinc-400">{t(lang, "app__your_magt")}</div>
-            <div className="mt-2 text-3xl font-semibold">{claimableMagt.toFixed(3)} MAGT</div>
+            <div className="mt-2 text-3xl font-semibold">
+              {claimableMagt.toFixed(3)} MAGT
+            </div>
 
             <button
               disabled={!claimEnabled}
@@ -232,7 +251,9 @@ export default function App() {
 
           <Card>
             <div className="text-sm text-zinc-400">{t(lang, "app__referral_magt")}</div>
-            <div className="mt-2 text-3xl font-semibold">{referralMagt.toFixed(3)} MAGT</div>
+            <div className="mt-2 text-3xl font-semibold">
+              {referralMagt.toFixed(3)} MAGT
+            </div>
 
             <div className="mt-4">
               <ReferralButton lang={lang} />
@@ -241,12 +262,21 @@ export default function App() {
         </div>
 
         <div className="mt-10 grid gap-6 md:grid-cols-2">
-          <PresaleProgress lang={lang} currentRound={currentRound} soldInRound={soldInRound} soldTotal={soldTotal} />
+          <PresaleProgress
+            lang={lang}
+            currentRound={currentRound}
+            soldInRound={soldInRound}
+            soldTotal={soldTotal}
+          />
 
           <Card>
             <div className="text-lg font-semibold">{t(lang, "app__stats")}</div>
-            <div className="mt-3 text-sm text-zinc-400">Raised (est.): ${raisedUsd.toLocaleString()}</div>
-            <div className="mt-2 text-xs text-zinc-500 break-all">Presale: {PRESALE_CONTRACT}</div>
+            <div className="mt-3 text-sm text-zinc-400">
+              Raised (est.): ${raisedUsd.toLocaleString()}
+            </div>
+            <div className="mt-2 text-xs text-zinc-500 break-all">
+              Presale: {PRESALE_CONTRACT}
+            </div>
           </Card>
         </div>
 

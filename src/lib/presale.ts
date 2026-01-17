@@ -12,7 +12,10 @@ export const ROUNDS_TOKENS = [
   9_559_925, 8_412_734, 7_423_267, 6_514_821, 5_733_043,
 ];
 
+// alias щоб не ламати старі імпорти
 export const ROUND_TOKENS = ROUNDS_TOKENS;
+
+// загальний пресейл = сума раундів
 export const TOTAL_PRESALE_TOKENS = ROUNDS_TOKENS.reduce((a, b) => a + b, 0);
 
 // jetton decimals = 9
@@ -24,8 +27,8 @@ export type PresaleSnapshot = {
   currentRound: number;
   soldTotalNano: bigint;
   soldInRoundNano: bigint;
-  totalRaisedNano: bigint; // getter totalRaisedNano()
-  claimableNano: bigint; // getter claimableNano(address)
+  totalRaisedNano: bigint;
+  claimableNano: bigint;
 };
 
 /* ===== price (як було у тебе) ===== */
@@ -143,20 +146,23 @@ function addressArgToBocB64(addr: string): string {
   return bytesToBase64(cell.toBoc({ idx: false }));
 }
 
+/**
+ * ✅ IMPORTANT:
+ * TonAPI для getter з Address аргументом очікує BOC(base64) cell.
+ * Friendly address ("EQ..", "0Q..") часто дає 0.
+ */
 async function getClaimableFromContract(
   presaleAddr: string,
   walletAddr: string
 ): Promise<bigint> {
-  // ✅ TonAPI для getter з Address аргументом очікує BOC(base64) cell.
   const bocArg = addressArgToBocB64(walletAddr);
-
   const r = await tonApiRunGetMethod(presaleAddr, "claimableNano", [bocArg]);
   const exit = r.exit_code ?? r.exitCode ?? 1;
   if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
   return 0n;
 }
 
-/* ===== fallback (старий метод) ===== */
+/* ===== fallback ===== */
 
 async function tonApiGetAccountBalanceNano(address: string): Promise<bigint> {
   const url = `${TONAPI_BASE}/v2/accounts/${address}?t=${Date.now()}`;
@@ -182,6 +188,7 @@ function calcRoundFromSold(soldTotalNano: bigint): {
   soldInRoundNano: bigint;
 } {
   let cum = 0n;
+
   for (let i = 0; i < ROUNDS_TOKENS.length; i++) {
     const capNano = BigInt(ROUNDS_TOKENS[i]) * NANO;
     if (soldTotalNano < cum + capNano) {
@@ -189,6 +196,7 @@ function calcRoundFromSold(soldTotalNano: bigint): {
     }
     cum += capNano;
   }
+
   const last = clampRoundIndex(ROUNDS_TOKENS.length - 1);
   const lastCapNano = BigInt(ROUNDS_TOKENS[last]) * NANO;
   return { currentRound: last, soldInRoundNano: lastCapNano };
@@ -209,8 +217,8 @@ function cacheKey(presale: string, wallet?: string) {
   return `${presale}::${wallet ?? "-"}`;
 }
 
-const MIN_FETCH_INTERVAL_MS = 12_000; // захист від спаму
-const BETWEEN_METHOD_DELAY_MS = 250;  // пауза між getter'ами
+const MIN_FETCH_INTERVAL_MS = 12_000;
+const BETWEEN_METHOD_DELAY_MS = 250;
 
 function nowMs() {
   return Date.now();
@@ -229,7 +237,7 @@ export async function getPresaleSnapshot(args?: {
   const t0 = nowMs();
   const entry: CacheEntry = SNAPSHOT_CACHE.get(key) ?? { ts: 0 };
 
-  // якщо TonAPI дав 429 — не робимо нові запити до cooldown
+  // cooldown після 429
   if (entry.cooldownUntil && t0 < entry.cooldownUntil) {
     if (entry.data) return entry.data;
     return {
@@ -241,17 +249,17 @@ export async function getPresaleSnapshot(args?: {
     };
   }
 
-  // якщо вже є запит — повертаємо той самий проміс
+  // coalesce
   if (entry.inFlight) return entry.inFlight;
 
-  // якщо недавно вже фетчили — повертаємо кеш
+  // кеш
   if (entry.data && t0 - entry.ts < MIN_FETCH_INTERVAL_MS) {
     return entry.data;
   }
 
   const doFetch = (async () => {
     try {
-      // ✅ ВАЖЛИВО: НЕ Promise.all, щоб не ловити 429
+      // ✅ НЕ Promise.all (щоб не ловити 429)
       const rRaised = await tonApiRunGetMethod(presaleAddress, "totalRaisedNano");
       await sleep(BETWEEN_METHOD_DELAY_MS);
 
@@ -312,11 +320,10 @@ export async function getPresaleSnapshot(args?: {
         if (prev?.data) return prev.data;
       }
 
-      // якщо є попередні дані — показуємо їх
       const prev = SNAPSHOT_CACHE.get(key);
       if (prev?.data) return prev.data;
 
-      // fallback (може теж 429)
+      // fallback
       try {
         const totalRaisedNano = await tonApiGetAccountBalanceNano(presaleAddress);
 
