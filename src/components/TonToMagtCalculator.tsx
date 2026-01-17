@@ -35,6 +35,14 @@ function sanitizeDecimal(raw: string, maxDecimals: number): string {
   return v;
 }
 
+function formatPriceTon(n: number) {
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  return new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 6,
+  }).format(n);
+}
+
 export function TonToMagtCalculator({
   lang,
   currentRound,
@@ -62,9 +70,7 @@ export function TonToMagtCalculator({
     <Card>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-lg font-semibold">
-            {t(lang, "calc__title")}
-          </div>
+          <div className="text-lg font-semibold">{t(lang, "calc__title")}</div>
           <div className="mt-1 text-sm text-zinc-400">
             {t(lang, "calc__subtitle")}
           </div>
@@ -73,7 +79,7 @@ export function TonToMagtCalculator({
         <div className="text-right">
           <div className="text-xs text-zinc-400">Round price</div>
           <div className="text-sm font-semibold">
-            TON{roundPrice.toFixed(6)} / MAGT
+            {formatPriceTon(roundPrice)} TON / MAGT
           </div>
         </div>
       </div>
@@ -108,9 +114,9 @@ export function TonToMagtCalculator({
 
           <input
             value={customPrice}
-            onChange={(e) => setCustomPrice(sanitizeDecimal(e.target.value, 4))}
+            onChange={(e) => setCustomPrice(sanitizeDecimal(e.target.value, 6))}
             className="mt-3 w-full rounded-xl border border-white/10 bg-black/35 px-3 py-2 outline-none"
-            placeholder="0.0000"
+            placeholder="0.000000"
             inputMode="decimal"
           />
 
@@ -127,9 +133,7 @@ export function TonToMagtCalculator({
         <div className="rounded-2xl border border-white/10 bg-black/40 p-4 backdrop-blur-md">
           <div className="text-xs text-zinc-400">You receive</div>
           <div className="mt-1 text-sm font-semibold">MAGT</div>
-          <div className="mt-3 text-2xl font-semibold">
-            {formatBig(magt)}
-          </div>
+          <div className="mt-3 text-2xl font-semibold">{formatBig(magt)}</div>
         </div>
       </div>
     </Card>

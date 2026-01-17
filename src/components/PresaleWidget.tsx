@@ -24,27 +24,23 @@ function bytesToBase64(bytes: Uint8Array) {
 function buildBuyPayloadBase64(ref: Address) {
   const BUY_OPCODE = 0x42555901;
 
-  const cell = beginCell()
-    .storeUint(BUY_OPCODE, 32)
-    .storeAddress(ref) // ← ЗАВЖДИ storeAddress
-    .endCell();
-
+  const cell = beginCell().storeUint(BUY_OPCODE, 32).storeAddress(ref).endCell();
   return bytesToBase64(cell.toBoc({ idx: false }));
 }
+
+const ZERO_REF = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c";
 
 function getRefOrZero(self: Address): Address {
   try {
     const refParam = new URLSearchParams(window.location.search).get("ref");
-    if (!refParam) return Address.parse("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c");
+    if (!refParam) return Address.parse(ZERO_REF);
 
     const ref = Address.parse(refParam);
-    if (ref.equals(self)) {
-      return Address.parse("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c");
-    }
+    if (ref.equals(self)) return Address.parse(ZERO_REF);
 
     return ref;
   } catch {
-    return Address.parse("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c");
+    return Address.parse(ZERO_REF);
   }
 }
 
@@ -75,6 +71,8 @@ export function PresaleWidget({
     const ton = toNumberSafe(tonAmount);
     if (ton <= 0) return setMsg(t(lang, "presale_widget__11"));
 
+    if (!payload) return setMsg("Wallet payload is not ready. Try again.");
+
     setLoading(true);
     setMsg("");
 
@@ -85,7 +83,7 @@ export function PresaleWidget({
           {
             address: PRESALE_CONTRACT,
             amount: toNanoTon(ton),
-            payload: payload!, // ✅ ТЕПЕР PAYLOAD ЗАВЖДИ Є
+            payload,
           },
         ],
       });
@@ -99,6 +97,8 @@ export function PresaleWidget({
     }
   }
 
+  const canBuy = !!addr && !!payload && !loading;
+
   return (
     <Card>
       <div className="text-lg font-semibold">{t(lang, "presale_widget__1")}</div>
@@ -111,9 +111,9 @@ export function PresaleWidget({
       />
 
       <button
-        disabled={loading || !addr}
+        disabled={!canBuy}
         onClick={buyWithTon}
-        className="mt-4 h-10 w-full rounded-xl border border-white/10 bg-white/5"
+        className="mt-4 h-10 w-full rounded-xl border border-white/10 bg-white/5 disabled:opacity-60"
       >
         {loading ? "Processing..." : "Buy MAGT"}
       </button>
