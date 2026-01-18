@@ -17,7 +17,7 @@ import { ProjectsSection } from "../components/ProjectsSection";
 import { Card } from "../components/Card";
 
 import { useTonAddress, useTonConnectUI } from "@tonconnect/ui-react";
-import { Address, beginCell } from "@ton/core";
+import { beginCell } from "@ton/core";
 
 import bg from "../assets/bg.png";
 
@@ -37,37 +37,6 @@ import { t } from "../lib/i18n";
    ===================================================== */
 const CLAIM_ENABLED_GLOBALLY = true;
 /* ===================================================== */
-
-const LS_REF_OWNER = "magt_ref_owner";
-
-function normAddr(s: string): string | null {
-  try {
-    return Address.parse(s).toRawString();
-  } catch {
-    return null;
-  }
-}
-
-function readRefParamNorm(): string | null {
-  try {
-    const params = new URLSearchParams(window.location.search);
-    const ref = params.get("ref");
-    if (!ref) return null;
-    return normAddr(ref);
-  } catch {
-    return null;
-  }
-}
-
-function readRefOwnerFromLSNorm(): string | null {
-  try {
-    const v = localStorage.getItem(LS_REF_OWNER);
-    if (!v) return null;
-    return normAddr(v);
-  } catch {
-    return null;
-  }
-}
 
 function bytesToBase64(bytes: Uint8Array) {
   let binary = "";
@@ -99,6 +68,12 @@ export default function App() {
     soldTotalNano: 0n,
     soldInRoundNano: 0n,
     totalRaisedNano: 0n,
+
+    // ✅ new split fields (so UI doesn't show NaN/undefined)
+    claimableBuyerNano: 0n,
+    claimableReferralNano: 0n,
+
+    // backwards compat
     claimableNano: 0n,
   });
 
@@ -116,28 +91,17 @@ export default function App() {
     [snapshot.soldInRoundNano]
   );
 
-  const claimableMagt = useMemo(
-    () => fromNano(snapshot.claimableNano),
-    [snapshot.claimableNano]
+  // ✅ Correct balances:
+  // "Your MAGT" = buyer claimable
+  const yourMagt = useMemo(
+    () => fromNano(snapshot.claimableBuyerNano ?? 0n),
+    [snapshot.claimableBuyerNano]
   );
 
-  const isReferralOwner = useMemo(() => {
-    if (!addr) return false;
-    const me = normAddr(addr);
-    if (!me) return false;
-
-    const refParam = readRefParamNorm();
-    if (refParam && refParam === me) return true;
-
-    const refOwner = readRefOwnerFromLSNorm();
-    if (refOwner && refOwner === me) return true;
-
-    return false;
-  }, [addr]);
-
+  // "Referral MAGT" = referral claimable for THIS wallet
   const referralMagt = useMemo(
-    () => (isReferralOwner ? claimableMagt : 0),
-    [isReferralOwner, claimableMagt]
+    () => fromNano(snapshot.claimableReferralNano ?? 0n),
+    [snapshot.claimableReferralNano]
   );
 
   const raisedUsd = useMemo(() => {
@@ -163,6 +127,9 @@ export default function App() {
         walletAddress: addr || undefined,
         force,
       });
+
+      // ✅ Keep UI stable: if something failed and returned partial zeros,
+      // we still accept it, because caching in presale.ts already protects.
       setSnapshot(data);
     } catch {
       // не ламаємо UI
@@ -252,7 +219,7 @@ export default function App() {
           <Card>
             <div className="text-sm text-zinc-400">{t(lang, "app__your_magt")}</div>
             <div className="mt-2 text-3xl font-semibold">
-              {claimableMagt.toFixed(3)} MAGT
+              {yourMagt.toFixed(3)} MAGT
             </div>
 
             <button

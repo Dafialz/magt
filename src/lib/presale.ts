@@ -33,7 +33,13 @@ export type PresaleSnapshot = {
   soldTotalNano: bigint;
   soldInRoundNano: bigint;
   totalRaisedNano: bigint;
-  claimableNano: bigint; // getter claimableNano(address)
+
+  // ✅ NEW (for correct UI)
+  claimableBuyerNano: bigint;    // getter claimableBuyerNano(address)
+  claimableReferralNano: bigint; // getter claimableReferralNano(address)
+
+  // backwards compat:
+  claimableNano: bigint; // total = buyer + referral (or getter claimableNano(address) if you still want)
 };
 
 /* ===== price ===== */
@@ -295,13 +301,14 @@ function addressArgToBocB64(addr: string): string {
   return bytesToBase64(cell.toBoc({ idx: false }));
 }
 
-async function getClaimableFromContractTonApi(
+async function getGetterWithAddressArgTonApi(
   presaleAddr: string,
+  getterName: string,
   walletAddr: string,
   opts?: { retries?: number }
 ): Promise<bigint> {
   const bocArg = addressArgToBocB64(walletAddr);
-  const r = await tonApiRunGetMethod(presaleAddr, "claimableNano", [bocArg], opts);
+  const r = await tonApiRunGetMethod(presaleAddr, getterName, [bocArg], opts);
   const exit = r.exit_code ?? r.exitCode ?? 1;
   if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
   return 0n;
@@ -311,38 +318,58 @@ async function getClaimableFromContractTonApi(
  * Toncenter is picky about stack types; wrong one => 422.
  * We try multiple formats.
  */
-async function getClaimableFromContractToncenter(
+async function getGetterWithAddressArgToncenter(
   presaleAddr: string,
+  getterName: string,
   walletAddr: string
 ): Promise<bigint> {
   const bocArg = addressArgToBocB64(walletAddr);
 
   const candidates: any[][] = [
-    // most common
     [["tvm.Slice", bocArg]],
-    // some nodes accept this
     [["slice", bocArg]],
-    // object style (some gateways)
     [{ type: "tvm.Slice", value: bocArg }],
     [{ type: "slice", value: bocArg }],
   ];
 
   for (const st of candidates) {
     try {
-      const r = await toncenterRunGetMethod(presaleAddr, "claimableNano", st);
+      const r = await toncenterRunGetMethod(presaleAddr, getterName, st);
       const exit = r.exit_code ?? r.exitCode ?? 1;
       if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
       return 0n;
     } catch (e: any) {
       const msg = String(e?.message ?? "");
-      // 422 = wrong arg format; try next
       if (msg.includes("TONCENTER_HTTP_422")) continue;
-      // any other error -> also try next (because testnet can be flaky)
       continue;
     }
   }
 
   return 0n;
+}
+
+async function getClaimableSplit(
+  presaleAddr: string,
+  walletAddr: string,
+  opts?: { retries?: number; force?: boolean }
+): Promise<{ buyer: bigint; referral: bigint; total: bigint }> {
+  const tonApiRetries = opts?.retries ?? 0;
+
+  try {
+    const [buyer, referral] = await Promise.all([
+      getGetterWithAddressArgTonApi(presaleAddr, "claimableBuyerNano", walletAddr, { retries: tonApiRetries }),
+      getGetterWithAddressArgTonApi(presaleAddr, "claimableReferralNano", walletAddr, { retries: tonApiRetries }),
+    ]);
+    const total = buyer + referral;
+    return { buyer, referral, total };
+  } catch {
+    const [buyer, referral] = await Promise.all([
+      getGetterWithAddressArgToncenter(presaleAddr, "claimableBuyerNano", walletAddr),
+      getGetterWithAddressArgToncenter(presaleAddr, "claimableReferralNano", walletAddr),
+    ]);
+    const total = buyer + referral;
+    return { buyer, referral, total };
+  }
 }
 
 /* ===== fallback (старий метод) ===== */
@@ -387,15 +414,19 @@ function calcRoundFromSold(soldTotalNano: bigint): {
 
 type BaseEntry = {
   ts: number;
-  data?: Omit<PresaleSnapshot, "claimableNano">;
-  inFlight?: Promise<Omit<PresaleSnapshot, "claimableNano">>;
+  data?: Omit<PresaleSnapshot, "claimableNano" | "claimableBuyerNano" | "claimableReferralNano">;
+  inFlight?: Promise<Omit<PresaleSnapshot, "claimableNano" | "claimableBuyerNano" | "claimableReferralNano">>;
   cooldownUntil?: number;
 };
 
 type ClaimEntry = {
   ts: number;
-  claimable?: bigint;
-  inFlight?: Promise<bigint>;
+
+  buyer?: bigint;
+  referral?: bigint;
+  total?: bigint;
+
+  inFlight?: Promise<{ buyer: bigint; referral: bigint; total: bigint }>;
   cooldownUntil?: number;
 };
 
@@ -442,13 +473,17 @@ export async function getPresaleSnapshot(args?: {
       soldTotalNano: base?.soldTotalNano ?? 0n,
       soldInRoundNano: base?.soldInRoundNano ?? 0n,
       totalRaisedNano: base?.totalRaisedNano ?? 0n,
+      claimableBuyerNano: 0n,
+      claimableReferralNano: 0n,
       claimableNano: 0n,
     };
   }
 
   // coalesce base
   const minInterval = force ? MIN_FORCE_INTERVAL_MS : MIN_FETCH_INTERVAL_MS;
-  let basePromise: Promise<Omit<PresaleSnapshot, "claimableNano">> | undefined = baseEntry.inFlight;
+  let basePromise:
+    | Promise<Omit<PresaleSnapshot, "claimableNano" | "claimableBuyerNano" | "claimableReferralNano">>
+    | undefined = baseEntry.inFlight;
 
   if (!basePromise) {
     if (baseEntry.data && now - baseEntry.ts < minInterval) {
@@ -518,12 +553,14 @@ export async function getPresaleSnapshot(args?: {
               data: prev?.data,
               cooldownUntil,
             });
-            return prev?.data ?? {
-              currentRound: 0,
-              soldTotalNano: 0n,
-              soldInRoundNano: 0n,
-              totalRaisedNano: 0n,
-            };
+            return (
+              prev?.data ?? {
+                currentRound: 0,
+                soldTotalNano: 0n,
+                soldInRoundNano: 0n,
+                totalRaisedNano: 0n,
+              }
+            );
           }
 
           // fallback: старий спосіб (TonAPI accounts/jettons)
@@ -554,7 +591,9 @@ export async function getPresaleSnapshot(args?: {
 
   const base = await basePromise;
 
-  // claimable (separate cache; expensive getter)
+  // claimable split (separate cache; expensive getters)
+  let claimableBuyerNano = 0n;
+  let claimableReferralNano = 0n;
   let claimableNano = 0n;
 
   if (walletAddress) {
@@ -562,37 +601,47 @@ export async function getPresaleSnapshot(args?: {
     const claimEntry: ClaimEntry = CLAIM_CACHE.get(cKey) ?? { ts: 0 };
 
     if (claimEntry.cooldownUntil && now < claimEntry.cooldownUntil) {
-      claimableNano = claimEntry.claimable ?? 0n;
+      claimableBuyerNano = claimEntry.buyer ?? 0n;
+      claimableReferralNano = claimEntry.referral ?? 0n;
+      claimableNano = claimEntry.total ?? (claimableBuyerNano + claimableReferralNano);
     } else if (claimEntry.inFlight) {
-      claimableNano = await claimEntry.inFlight;
+      const r = await claimEntry.inFlight;
+      claimableBuyerNano = r.buyer;
+      claimableReferralNano = r.referral;
+      claimableNano = r.total;
     } else {
       const needClaimable = force || now - claimEntry.ts >= CLAIMABLE_MIN_INTERVAL_MS;
 
-      if (!needClaimable && claimEntry.claimable != null) {
-        claimableNano = claimEntry.claimable;
+      if (!needClaimable && (claimEntry.buyer != null || claimEntry.referral != null || claimEntry.total != null)) {
+        claimableBuyerNano = claimEntry.buyer ?? 0n;
+        claimableReferralNano = claimEntry.referral ?? 0n;
+        claimableNano = claimEntry.total ?? (claimableBuyerNano + claimableReferralNano);
       } else {
         const doClaim = (async () => {
           try {
             const tonApiRetries = force ? 1 : 0;
-            try {
-              return await getClaimableFromContractTonApi(presaleAddress, walletAddress, {
-                retries: tonApiRetries,
-              });
-            } catch {
-              return await getClaimableFromContractToncenter(presaleAddress, walletAddress);
-            }
+            return await getClaimableSplit(presaleAddress, walletAddress, { retries: tonApiRetries, force });
           } catch (e: any) {
             if (e instanceof RateLimitError) {
               const prev = CLAIM_CACHE.get(cKey);
               const cooldownUntil = Date.now() + Math.max(30_000, e.retryAfterMs);
               CLAIM_CACHE.set(cKey, {
                 ts: prev?.ts ?? 0,
-                claimable: prev?.claimable,
+                buyer: prev?.buyer,
+                referral: prev?.referral,
+                total: prev?.total,
                 cooldownUntil,
               });
-              return prev?.claimable ?? 0n;
+              const buyer = prev?.buyer ?? 0n;
+              const referral = prev?.referral ?? 0n;
+              const total = prev?.total ?? (buyer + referral);
+              return { buyer, referral, total };
             }
-            return claimEntry.claimable ?? 0n;
+
+            const buyer = claimEntry.buyer ?? 0n;
+            const referral = claimEntry.referral ?? 0n;
+            const total = claimEntry.total ?? (buyer + referral);
+            return { buyer, referral, total };
           } finally {
             const cur = CLAIM_CACHE.get(cKey);
             if (cur) delete cur.inFlight;
@@ -600,19 +649,36 @@ export async function getPresaleSnapshot(args?: {
         })();
 
         CLAIM_CACHE.set(cKey, { ...claimEntry, inFlight: doClaim });
-        claimableNano = await doClaim;
+
+        const r = await doClaim;
+        claimableBuyerNano = r.buyer;
+        claimableReferralNano = r.referral;
+        claimableNano = r.total;
 
         // store result once
-        CLAIM_CACHE.set(cKey, { ts: Date.now(), claimable: claimableNano });
+        CLAIM_CACHE.set(cKey, {
+          ts: Date.now(),
+          buyer: claimableBuyerNano,
+          referral: claimableReferralNano,
+          total: claimableNano,
+        });
       }
     }
   }
+
+  // sanitize
+  if (claimableBuyerNano < 0n) claimableBuyerNano = 0n;
+  if (claimableReferralNano < 0n) claimableReferralNano = 0n;
+  if (claimableNano < 0n) claimableNano = 0n;
 
   return {
     currentRound: base.currentRound,
     soldTotalNano: base.soldTotalNano,
     soldInRoundNano: base.soldInRoundNano,
     totalRaisedNano: base.totalRaisedNano,
-    claimableNano: claimableNano < 0n ? 0n : claimableNano,
+
+    claimableBuyerNano,
+    claimableReferralNano,
+    claimableNano, // total
   };
 }
