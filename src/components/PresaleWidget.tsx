@@ -22,23 +22,19 @@ function bytesToBase64(bytes: Uint8Array) {
  * ✅ Contract expects:
  * message(0x42555901) Buy { ref: Address?; }
  *
- * Тобто ref є OPTIONAL.
- * Для Address? треба записати:
- * - 1 біт: є/немає значення
- * - якщо є -> storeAddress(ref)
+ * ref = Address? is encoded as MaybeAddress in TON:
+ * - addr_none (00) => null
+ * - addr_std  (10) => internal address
+ *
+ * ✅ Therefore: DO NOT add an extra boolean bit.
  *
  * Якщо ref НЕ заданий — краще відправити пустий body (receive()),
- * щоб контракт викликав processBuy(null) і НЕ робив referral logic.
+ * щоб контракт викликав processBuy(null).
  */
 function buildBuyPayloadBase64(ref: Address) {
   const BUY_OPCODE = 0x42555901;
 
-  const cell = beginCell()
-    .storeUint(BUY_OPCODE, 32)
-    .storeBit(true) // ✅ Address? present
-    .storeAddress(ref)
-    .endCell();
-
+  const cell = beginCell().storeUint(BUY_OPCODE, 32).storeAddress(ref).endCell();
   return bytesToBase64(cell.toBoc({ idx: false }));
 }
 
