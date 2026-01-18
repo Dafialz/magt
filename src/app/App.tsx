@@ -249,23 +249,14 @@ export default function App() {
           </Card>
         </div>
 
-        <div className="mt-10 grid gap-6 md:grid-cols-2">
+        {/* ✅ Presale Progress на всю ширину */}
+        <div className="mt-10">
           <PresaleProgress
             lang={lang}
             currentRound={currentRound}
             soldInRound={soldInRound}
             soldTotal={soldTotal}
           />
-
-          <Card>
-            <div className="text-lg font-semibold">{t(lang, "app__stats")}</div>
-            <div className="mt-3 text-sm text-zinc-400">
-              Raised (est.): ${raisedUsd.toLocaleString()}
-            </div>
-            <div className="mt-2 text-xs text-zinc-500 break-all">
-              Presale: {PRESALE_CONTRACT}
-            </div>
-          </Card>
         </div>
 
         <div className="mt-10">
