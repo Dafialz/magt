@@ -19,13 +19,26 @@ function bytesToBase64(bytes: Uint8Array) {
 }
 
 /**
- * message(0x42555901) Buy { ref: Address }
- * Якщо ref НЕ заданий — краще відправити пустий body (receive())
- * щоб контракт викликав processBuy(null) і НЕ з'їдав referralPool.
+ * ✅ Contract expects:
+ * message(0x42555901) Buy { ref: Address?; }
+ *
+ * Тобто ref є OPTIONAL.
+ * Для Address? треба записати:
+ * - 1 біт: є/немає значення
+ * - якщо є -> storeAddress(ref)
+ *
+ * Якщо ref НЕ заданий — краще відправити пустий body (receive()),
+ * щоб контракт викликав processBuy(null) і НЕ робив referral logic.
  */
 function buildBuyPayloadBase64(ref: Address) {
   const BUY_OPCODE = 0x42555901;
-  const cell = beginCell().storeUint(BUY_OPCODE, 32).storeAddress(ref).endCell();
+
+  const cell = beginCell()
+    .storeUint(BUY_OPCODE, 32)
+    .storeBit(true) // ✅ Address? present
+    .storeAddress(ref)
+    .endCell();
+
   return bytesToBase64(cell.toBoc({ idx: false }));
 }
 
@@ -61,8 +74,10 @@ export function PresaleWidget({
     if (!addr) return undefined;
     const self = Address.parse(addr);
     const ref = getRefOrNull(self);
+
     // якщо ref нема — payload не треба (спрацює receive())
     if (!ref) return undefined;
+
     return buildBuyPayloadBase64(ref);
   }, [addr]);
 
