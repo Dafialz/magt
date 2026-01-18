@@ -1,5 +1,4 @@
 // src/lib/presale.ts
-
 import { Address, beginCell } from "@ton/core";
 import {
   TONAPI_BASE,
@@ -103,9 +102,9 @@ async function fetchJson<T>(
   for (let attempt = 0; attempt <= retries; attempt++) {
     let r: Response;
     try {
-      // ✅ IMPORTANT: don't send custom request headers like `pragma` / `cache-control`.
+      // ✅ IMPORTANT: do NOT send custom request headers like `pragma` / `cache-control`.
       // TonAPI testnet CORS preflight may reject them ("pragma is not allowed").
-      // `cache: "no-store"` is enough to prevent stale responses.
+      // Query param ?t=... already busts cache; `cache: "no-store"` is enough.
       r = await fetch(url, {
         cache: "no-store",
       });

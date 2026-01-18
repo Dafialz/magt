@@ -63,6 +63,9 @@ export default function App() {
   const addr = useTonAddress();
   const [tonConnectUI] = useTonConnectUI();
 
+  // ✅ Surface provider failures (TonAPI CORS / Toncenter 5xx) instead of silently showing 0.000
+  const [dataError, setDataError] = useState<string>("");
+
   const [snapshot, setSnapshot] = useState<PresaleSnapshot>({
     currentRound: 0,
     soldTotalNano: 0n,
@@ -131,8 +134,11 @@ export default function App() {
       // ✅ Keep UI stable: if something failed and returned partial zeros,
       // we still accept it, because caching in presale.ts already protects.
       setSnapshot(data);
-    } catch {
-      // не ламаємо UI
+      setDataError("");
+    } catch (e: any) {
+      const msg = String(e?.message ?? e ?? "");
+      console.error("[PresaleSnapshot ERROR]", e);
+      setDataError(msg || "Failed to load on-chain data");
     } finally {
       inFlightRef.current = false;
     }
@@ -192,8 +198,8 @@ export default function App() {
       });
 
       forceRefreshAfterTx();
-    } catch {
-      // тихо
+    } catch (e) {
+      console.error("[CLAIM ERROR]", e);
     }
   };
 
@@ -217,7 +223,9 @@ export default function App() {
 
         <div className="grid gap-6 md:grid-cols-2">
           <Card>
-            <div className="text-sm text-zinc-400">{t(lang, "app__your_magt")}</div>
+            <div className="text-sm text-zinc-400">
+              {t(lang, "app__your_magt")}
+            </div>
             <div className="mt-2 text-3xl font-semibold">
               {yourMagt.toFixed(3)} MAGT
             </div>
@@ -238,7 +246,9 @@ export default function App() {
           </Card>
 
           <Card>
-            <div className="text-sm text-zinc-400">{t(lang, "app__referral_magt")}</div>
+            <div className="text-sm text-zinc-400">
+              {t(lang, "app__referral_magt")}
+            </div>
             <div className="mt-2 text-3xl font-semibold">
               {referralMagt.toFixed(3)} MAGT
             </div>
@@ -249,7 +259,7 @@ export default function App() {
           </Card>
         </div>
 
-        {/* ✅ Presale Progress на всю ширину */}
+        {/* ✅ Presale Progress full-width (hide app__stats card) */}
         <div className="mt-10">
           <PresaleProgress
             lang={lang}
@@ -257,6 +267,12 @@ export default function App() {
             soldInRound={soldInRound}
             soldTotal={soldTotal}
           />
+
+          {dataError && (
+            <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+              On-chain data error: {dataError}
+            </div>
+          )}
         </div>
 
         <div className="mt-10">
