@@ -34,12 +34,12 @@ export type PresaleSnapshot = {
   soldInRoundNano: bigint;
   totalRaisedNano: bigint;
 
-  // ✅ NEW (for correct UI)
-  claimableBuyerNano: bigint;    // getter claimableBuyerNano(address)
-  claimableReferralNano: bigint; // getter claimableReferralNano(address)
+  // ✅ NEW: split claimables
+  claimableBuyerNano: bigint;
+  claimableReferralNano: bigint;
 
-  // backwards compat:
-  claimableNano: bigint; // total = buyer + referral (or getter claimableNano(address) if you still want)
+  // ✅ backwards compat (total = buyer + referral)
+  claimableNano: bigint;
 };
 
 /* ===== price ===== */
@@ -175,7 +175,7 @@ function stackItemToBigInt(item: any): bigint {
 }
 
 /* ===========================
-   ✅ TonAPI (no burst)
+   ✅ TonAPI
    =========================== */
 
 async function tonApiRunGetMethod(
@@ -202,15 +202,10 @@ async function tonApiRunGetMethod(
 let TONCENTER_QUEUE: Promise<void> = Promise.resolve();
 let TONCENTER_LAST_AT = 0;
 
-// без API key ставимо більший інтервал, з key — менший
 function toncenterMinIntervalMs() {
   return TONCENTER_API_KEY ? 250 : 1500;
 }
 
-/**
- * Schedules a single slot in the toncenter queue.
- * Returns a release() that is safe to call multiple times.
- */
 async function toncenterSchedule() {
   const prev = TONCENTER_QUEUE;
 
@@ -269,7 +264,6 @@ async function toncenterRunGetMethod(
     }
 
     if (r.status === 429) {
-      // toncenter часто не дає retry-after, ставимо 60s
       throw new RateLimitError(60_000, "TONCENTER_RATE_LIMIT");
     }
 
@@ -286,7 +280,7 @@ async function toncenterRunGetMethod(
       stack: res.stack,
     };
   } finally {
-    // release already executed in fetch finally; this is just safety
+    // safety
     release();
   }
 }
@@ -301,26 +295,22 @@ function addressArgToBocB64(addr: string): string {
   return bytesToBase64(cell.toBoc({ idx: false }));
 }
 
-async function getGetterWithAddressArgTonApi(
+async function runGetBigIntTonApi(
   presaleAddr: string,
-  getterName: string,
+  method: string,
   walletAddr: string,
   opts?: { retries?: number }
 ): Promise<bigint> {
   const bocArg = addressArgToBocB64(walletAddr);
-  const r = await tonApiRunGetMethod(presaleAddr, getterName, [bocArg], opts);
+  const r = await tonApiRunGetMethod(presaleAddr, method, [bocArg], opts);
   const exit = r.exit_code ?? r.exitCode ?? 1;
   if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
   return 0n;
 }
 
-/**
- * Toncenter is picky about stack types; wrong one => 422.
- * We try multiple formats.
- */
-async function getGetterWithAddressArgToncenter(
+async function runGetBigIntToncenter(
   presaleAddr: string,
-  getterName: string,
+  method: string,
   walletAddr: string
 ): Promise<bigint> {
   const bocArg = addressArgToBocB64(walletAddr);
@@ -334,7 +324,7 @@ async function getGetterWithAddressArgToncenter(
 
   for (const st of candidates) {
     try {
-      const r = await toncenterRunGetMethod(presaleAddr, getterName, st);
+      const r = await toncenterRunGetMethod(presaleAddr, method, st);
       const exit = r.exit_code ?? r.exitCode ?? 1;
       if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
       return 0n;
@@ -346,30 +336,6 @@ async function getGetterWithAddressArgToncenter(
   }
 
   return 0n;
-}
-
-async function getClaimableSplit(
-  presaleAddr: string,
-  walletAddr: string,
-  opts?: { retries?: number; force?: boolean }
-): Promise<{ buyer: bigint; referral: bigint; total: bigint }> {
-  const tonApiRetries = opts?.retries ?? 0;
-
-  try {
-    const [buyer, referral] = await Promise.all([
-      getGetterWithAddressArgTonApi(presaleAddr, "claimableBuyerNano", walletAddr, { retries: tonApiRetries }),
-      getGetterWithAddressArgTonApi(presaleAddr, "claimableReferralNano", walletAddr, { retries: tonApiRetries }),
-    ]);
-    const total = buyer + referral;
-    return { buyer, referral, total };
-  } catch {
-    const [buyer, referral] = await Promise.all([
-      getGetterWithAddressArgToncenter(presaleAddr, "claimableBuyerNano", walletAddr),
-      getGetterWithAddressArgToncenter(presaleAddr, "claimableReferralNano", walletAddr),
-    ]);
-    const total = buyer + referral;
-    return { buyer, referral, total };
-  }
 }
 
 /* ===== fallback (старий метод) ===== */
@@ -414,25 +380,28 @@ function calcRoundFromSold(soldTotalNano: bigint): {
 
 type BaseEntry = {
   ts: number;
-  data?: Omit<PresaleSnapshot, "claimableNano" | "claimableBuyerNano" | "claimableReferralNano">;
-  inFlight?: Promise<Omit<PresaleSnapshot, "claimableNano" | "claimableBuyerNano" | "claimableReferralNano">>;
+  data?: Omit<
+    PresaleSnapshot,
+    "claimableNano" | "claimableBuyerNano" | "claimableReferralNano"
+  >;
+  inFlight?: Promise<
+    Omit<
+      PresaleSnapshot,
+      "claimableNano" | "claimableBuyerNano" | "claimableReferralNano"
+    >
+  >;
   cooldownUntil?: number;
 };
 
 type ClaimEntry = {
   ts: number;
-
   buyer?: bigint;
   referral?: bigint;
-  total?: bigint;
-
-  inFlight?: Promise<{ buyer: bigint; referral: bigint; total: bigint }>;
+  inFlight?: Promise<{ buyer: bigint; referral: bigint }>;
   cooldownUntil?: number;
 };
 
-// ✅ one base snapshot per presale
 const BASE_CACHE = new Map<string, BaseEntry>();
-// claimable is per-wallet
 const CLAIM_CACHE = new Map<string, ClaimEntry>();
 
 function baseKey(presale: string) {
@@ -443,11 +412,8 @@ function claimKey(presale: string, wallet: string) {
   return `${presale}::${wallet}`;
 }
 
-// звичайний режим
 const MIN_FETCH_INTERVAL_MS = 20_000;
-// force режим (після TX)
 const MIN_FORCE_INTERVAL_MS = 8_000;
-// claimable читаємо рідше
 const CLAIMABLE_MIN_INTERVAL_MS = 30_000;
 
 /* ===== main ===== */
@@ -465,29 +431,30 @@ export async function getPresaleSnapshot(args?: {
   const bKey = baseKey(presaleAddress);
   const baseEntry: BaseEntry = BASE_CACHE.get(bKey) ?? { ts: 0 };
 
-  // cooldown після rate-limit (і в force теж поважаємо)
-  if (baseEntry.cooldownUntil && now < baseEntry.cooldownUntil) {
-    const base = baseEntry.data;
-    return {
-      currentRound: base?.currentRound ?? 0,
-      soldTotalNano: base?.soldTotalNano ?? 0n,
-      soldInRoundNano: base?.soldInRoundNano ?? 0n,
-      totalRaisedNano: base?.totalRaisedNano ?? 0n,
-      claimableBuyerNano: 0n,
-      claimableReferralNano: 0n,
-      claimableNano: 0n,
-    };
-  }
-
-  // coalesce base
+  // basePromise (can still return cached while cooldown)
   const minInterval = force ? MIN_FORCE_INTERVAL_MS : MIN_FETCH_INTERVAL_MS;
   let basePromise:
-    | Promise<Omit<PresaleSnapshot, "claimableNano" | "claimableBuyerNano" | "claimableReferralNano">>
+    | Promise<
+        Omit<
+          PresaleSnapshot,
+          "claimableNano" | "claimableBuyerNano" | "claimableReferralNano"
+        >
+      >
     | undefined = baseEntry.inFlight;
 
   if (!basePromise) {
     if (baseEntry.data && now - baseEntry.ts < minInterval) {
       basePromise = Promise.resolve(baseEntry.data);
+    } else if (baseEntry.cooldownUntil && now < baseEntry.cooldownUntil) {
+      // ✅ during cooldown just serve cached base (or zeros)
+      basePromise = Promise.resolve(
+        baseEntry.data ?? {
+          currentRound: 0,
+          soldTotalNano: 0n,
+          soldInRoundNano: 0n,
+          totalRaisedNano: 0n,
+        }
+      );
     } else {
       basePromise = (async () => {
         try {
@@ -508,9 +475,12 @@ export async function getPresaleSnapshot(args?: {
             rRound = await tonApiRunGetMethod(presaleAddress, "currentRound", [], {
               retries: tonApiRetries,
             });
-            rRoundSold = await tonApiRunGetMethod(presaleAddress, "currentRoundSoldNano", [], {
-              retries: tonApiRetries,
-            });
+            rRoundSold = await tonApiRunGetMethod(
+              presaleAddress,
+              "currentRoundSoldNano",
+              [],
+              { retries: tonApiRetries }
+            );
           } catch {
             rRaised = await toncenterRunGetMethod(presaleAddress, "totalRaisedNano");
             rSold = await toncenterRunGetMethod(presaleAddress, "totalSoldNano");
@@ -553,17 +523,15 @@ export async function getPresaleSnapshot(args?: {
               data: prev?.data,
               cooldownUntil,
             });
-            return (
-              prev?.data ?? {
-                currentRound: 0,
-                soldTotalNano: 0n,
-                soldInRoundNano: 0n,
-                totalRaisedNano: 0n,
-              }
-            );
+            return prev?.data ?? {
+              currentRound: 0,
+              soldTotalNano: 0n,
+              soldInRoundNano: 0n,
+              totalRaisedNano: 0n,
+            };
           }
 
-          // fallback: старий спосіб (TonAPI accounts/jettons)
+          // fallback: TonAPI accounts/jettons (may be less accurate)
           const totalRaisedNano = await tonApiGetAccountBalanceNano(presaleAddress);
           const remainingNano = await tonApiGetWalletJettonBalanceNano(presaleAddress, JETTON_MASTER);
           const soldTotalNano =
@@ -591,36 +559,49 @@ export async function getPresaleSnapshot(args?: {
 
   const base = await basePromise;
 
-  // claimable split (separate cache; expensive getters)
-  let claimableBuyerNano = 0n;
-  let claimableReferralNano = 0n;
-  let claimableNano = 0n;
+  // ✅ claimables (buyer/referral) — per-wallet cache
+  let claimBuyer = 0n;
+  let claimReferral = 0n;
 
   if (walletAddress) {
     const cKey = claimKey(presaleAddress, walletAddress);
     const claimEntry: ClaimEntry = CLAIM_CACHE.get(cKey) ?? { ts: 0 };
 
     if (claimEntry.cooldownUntil && now < claimEntry.cooldownUntil) {
-      claimableBuyerNano = claimEntry.buyer ?? 0n;
-      claimableReferralNano = claimEntry.referral ?? 0n;
-      claimableNano = claimEntry.total ?? (claimableBuyerNano + claimableReferralNano);
+      claimBuyer = claimEntry.buyer ?? 0n;
+      claimReferral = claimEntry.referral ?? 0n;
     } else if (claimEntry.inFlight) {
       const r = await claimEntry.inFlight;
-      claimableBuyerNano = r.buyer;
-      claimableReferralNano = r.referral;
-      claimableNano = r.total;
+      claimBuyer = r.buyer;
+      claimReferral = r.referral;
     } else {
-      const needClaimable = force || now - claimEntry.ts >= CLAIMABLE_MIN_INTERVAL_MS;
+      const need = force || now - claimEntry.ts >= CLAIMABLE_MIN_INTERVAL_MS;
 
-      if (!needClaimable && (claimEntry.buyer != null || claimEntry.referral != null || claimEntry.total != null)) {
-        claimableBuyerNano = claimEntry.buyer ?? 0n;
-        claimableReferralNano = claimEntry.referral ?? 0n;
-        claimableNano = claimEntry.total ?? (claimableBuyerNano + claimableReferralNano);
+      if (!need && claimEntry.buyer != null && claimEntry.referral != null) {
+        claimBuyer = claimEntry.buyer;
+        claimReferral = claimEntry.referral;
       } else {
         const doClaim = (async () => {
           try {
             const tonApiRetries = force ? 1 : 0;
-            return await getClaimableSplit(presaleAddress, walletAddress, { retries: tonApiRetries, force });
+
+            try {
+              const [b, r] = await Promise.all([
+                runGetBigIntTonApi(presaleAddress, "claimableBuyerNano", walletAddress, {
+                  retries: tonApiRetries,
+                }),
+                runGetBigIntTonApi(presaleAddress, "claimableReferralNano", walletAddress, {
+                  retries: tonApiRetries,
+                }),
+              ]);
+              return { buyer: b, referral: r };
+            } catch {
+              const [b, r] = await Promise.all([
+                runGetBigIntToncenter(presaleAddress, "claimableBuyerNano", walletAddress),
+                runGetBigIntToncenter(presaleAddress, "claimableReferralNano", walletAddress),
+              ]);
+              return { buyer: b, referral: r };
+            }
           } catch (e: any) {
             if (e instanceof RateLimitError) {
               const prev = CLAIM_CACHE.get(cKey);
@@ -629,19 +610,11 @@ export async function getPresaleSnapshot(args?: {
                 ts: prev?.ts ?? 0,
                 buyer: prev?.buyer,
                 referral: prev?.referral,
-                total: prev?.total,
                 cooldownUntil,
               });
-              const buyer = prev?.buyer ?? 0n;
-              const referral = prev?.referral ?? 0n;
-              const total = prev?.total ?? (buyer + referral);
-              return { buyer, referral, total };
+              return { buyer: prev?.buyer ?? 0n, referral: prev?.referral ?? 0n };
             }
-
-            const buyer = claimEntry.buyer ?? 0n;
-            const referral = claimEntry.referral ?? 0n;
-            const total = claimEntry.total ?? (buyer + referral);
-            return { buyer, referral, total };
+            return { buyer: claimEntry.buyer ?? 0n, referral: claimEntry.referral ?? 0n };
           } finally {
             const cur = CLAIM_CACHE.get(cKey);
             if (cur) delete cur.inFlight;
@@ -650,26 +623,17 @@ export async function getPresaleSnapshot(args?: {
 
         CLAIM_CACHE.set(cKey, { ...claimEntry, inFlight: doClaim });
 
-        const r = await doClaim;
-        claimableBuyerNano = r.buyer;
-        claimableReferralNano = r.referral;
-        claimableNano = r.total;
+        const res = await doClaim;
+        claimBuyer = res.buyer;
+        claimReferral = res.referral;
 
-        // store result once
-        CLAIM_CACHE.set(cKey, {
-          ts: Date.now(),
-          buyer: claimableBuyerNano,
-          referral: claimableReferralNano,
-          total: claimableNano,
-        });
+        CLAIM_CACHE.set(cKey, { ts: Date.now(), buyer: claimBuyer, referral: claimReferral });
       }
     }
   }
 
-  // sanitize
-  if (claimableBuyerNano < 0n) claimableBuyerNano = 0n;
-  if (claimableReferralNano < 0n) claimableReferralNano = 0n;
-  if (claimableNano < 0n) claimableNano = 0n;
+  const safeBuyer = claimBuyer < 0n ? 0n : claimBuyer;
+  const safeRef = claimReferral < 0n ? 0n : claimReferral;
 
   return {
     currentRound: base.currentRound,
@@ -677,8 +641,8 @@ export async function getPresaleSnapshot(args?: {
     soldInRoundNano: base.soldInRoundNano,
     totalRaisedNano: base.totalRaisedNano,
 
-    claimableBuyerNano,
-    claimableReferralNano,
-    claimableNano, // total
+    claimableBuyerNano: safeBuyer,
+    claimableReferralNano: safeRef,
+    claimableNano: safeBuyer + safeRef,
   };
 }
