@@ -32,11 +32,11 @@ export const IS_TESTNET = NETWORK === "testnet";
  */
 export const TONCONNECT_MANIFEST_URL = `${window.location.origin}/tonconnect-manifest.json`;
 
-/** ✅ TonAPI base */
+/** ✅ TonAPI base (DO NOT rely on it as primary in browser; may be blocked by CORS/429) */
 export const TONAPI_BASE = IS_TESTNET ? "https://testnet.tonapi.io" : "https://tonapi.io";
 
 /**
- * ✅ Toncenter JSON-RPC (fallback when TonAPI is blocked/unreachable)
+ * ✅ Toncenter JSON-RPC (PRIMARY for onchain getters)
  * Without API key Toncenter is rate-limited. You can set:
  * VITE_TONCENTER_API_KEY or VITE_TONCENTER_KEY
  */

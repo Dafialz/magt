@@ -91,49 +91,6 @@ async function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchJson<T>(
-  url: string,
-  opts?: {
-    retries?: number;
-  }
-): Promise<T> {
-  const retries = Math.max(0, Math.floor(opts?.retries ?? 0));
-
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    let r: Response;
-    try {
-      // ✅ IMPORTANT: do NOT send custom request headers like `pragma` / `cache-control`.
-      // TonAPI testnet CORS preflight may reject them ("pragma is not allowed").
-      // Query param ?t=... already busts cache; `cache: "no-store"` is enough.
-      r = await fetch(url, {
-        cache: "no-store",
-      });
-    } catch {
-      throw new Error("FETCH_FAILED");
-    }
-
-    if (r.status === 429) {
-      const retryAfterMs = retryAfterToMs(r.headers.get("retry-after"));
-      if (attempt < retries) {
-        await sleep(Math.min(1500, retryAfterMs));
-        continue;
-      }
-      throw new RateLimitError(retryAfterMs, "TONAPI_RATE_LIMIT");
-    }
-
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return (await r.json()) as T;
-  }
-
-  throw new Error("UNREACHABLE");
-}
-
-type TonRunGetResp = {
-  exit_code?: number;
-  exitCode?: number;
-  stack?: any[];
-};
-
 function clampRoundIndex(i: number): number {
   return Math.max(0, Math.min(i, ROUNDS_TOKENS.length - 1));
 }
@@ -172,9 +129,71 @@ function stackItemToBigInt(item: any): bigint {
   return 0n;
 }
 
+async function fetchJson<T>(
+  url: string,
+  opts?: { retries?: number; timeoutMs?: number }
+): Promise<T> {
+  const retries = Math.max(0, Math.floor(opts?.retries ?? 0));
+  const timeoutMs = Math.max(2000, Math.floor(opts?.timeoutMs ?? 12_000));
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), timeoutMs);
+
+    let r: Response;
+    try {
+      r = await fetch(url, {
+        cache: "no-store",
+        signal: ac.signal,
+      });
+    } catch (e: any) {
+      clearTimeout(t);
+      const msg = String(e?.name ?? e?.message ?? "");
+      if (msg.includes("AbortError") || msg.includes("aborted")) {
+        if (attempt < retries) continue;
+        throw new Error("FETCH_TIMEOUT");
+      }
+      if (attempt < retries) continue;
+      throw new Error("FETCH_FAILED");
+    } finally {
+      clearTimeout(t);
+    }
+
+    if (r.status === 429) {
+      const retryAfterMs = retryAfterToMs(r.headers.get("retry-after"));
+      if (attempt < retries) {
+        await sleep(Math.min(1500, retryAfterMs));
+        continue;
+      }
+      throw new RateLimitError(retryAfterMs, "PROVIDER_RATE_LIMIT");
+    }
+
+    if (!r.ok) {
+      if (attempt < retries) continue;
+      throw new Error(`HTTP ${r.status}`);
+    }
+
+    try {
+      return (await r.json()) as T;
+    } catch {
+      // JSON parse failed (e.g. empty response); retry
+      if (attempt < retries) continue;
+      throw new Error("JSON_PARSE_FAILED");
+    }
+  }
+
+  throw new Error("UNREACHABLE");
+}
+
 /* ===========================
-   ✅ TonAPI
+   ✅ TonAPI (FALLBACK ONLY)
    =========================== */
+
+type TonRunGetResp = {
+  exit_code?: number;
+  exitCode?: number;
+  stack?: any[];
+};
 
 async function tonApiRunGetMethod(
   accountId: string,
@@ -190,21 +209,26 @@ async function tonApiRunGetMethod(
     methodName
   )}?${qs.toString()}`;
 
-  return await fetchJson<TonRunGetResp>(url, { retries: opts?.retries ?? 0 });
+  // ⚠️ TonAPI може бути заблокований CORS — тому тут тільки fallback
+  return await fetchJson<TonRunGetResp>(url, {
+    retries: Math.max(0, opts?.retries ?? 0),
+    timeoutMs: 12_000,
+  });
 }
 
 /* ===========================
-   ✅ Toncenter JSON-RPC (rate limited)
+   ✅ Toncenter JSON-RPC (PRIMARY)
    =========================== */
 
 let TONCENTER_QUEUE: Promise<void> = Promise.resolve();
 let TONCENTER_LAST_AT = 0;
 
 function toncenterMinIntervalMs() {
-  return TONCENTER_API_KEY ? 250 : 1500;
+  // з API key можна частіше
+  return TONCENTER_API_KEY ? 200 : 1200;
 }
 
-async function toncenterSchedule() {
+async function toncenterSchedule(): Promise<() => void> {
   const prev = TONCENTER_QUEUE;
 
   let releaseRaw!: () => void;
@@ -216,32 +240,26 @@ async function toncenterSchedule() {
   if (wait > 0) await sleep(wait);
 
   let released = false;
-  const release = () => {
+  return () => {
     if (released) return;
     released = true;
     releaseRaw();
   };
-
-  return release;
 }
 
-async function toncenterRunGetMethod(
-  accountId: string,
-  methodName: string,
-  stack: any[] = []
-): Promise<TonRunGetResp> {
+async function toncenterRpc<T>(method: string, params: any): Promise<T> {
   const release = await toncenterSchedule();
+
+  const ac = new AbortController();
+  const timeoutMs = 12_000;
+  const t = setTimeout(() => ac.abort(), timeoutMs);
 
   try {
     const body = {
       jsonrpc: "2.0",
       id: 1,
-      method: "runGetMethod",
-      params: {
-        address: accountId,
-        method: methodName,
-        stack,
-      },
+      method,
+      params,
     };
 
     let r: Response;
@@ -253,12 +271,16 @@ async function toncenterRunGetMethod(
           ...(TONCENTER_API_KEY ? { "X-API-Key": TONCENTER_API_KEY } : {}),
         },
         body: JSON.stringify(body),
+        signal: ac.signal,
       });
-    } catch {
+    } catch (e: any) {
+      const msg = String(e?.name ?? e?.message ?? "");
+      if (msg.includes("AbortError") || msg.includes("aborted")) {
+        throw new Error("TONCENTER_TIMEOUT");
+      }
       throw new Error("TONCENTER_FETCH_FAILED");
     } finally {
       TONCENTER_LAST_AT = Date.now();
-      release();
     }
 
     if (r.status === 429) {
@@ -273,14 +295,28 @@ async function toncenterRunGetMethod(
     const res = j?.result ?? j?.result?.result;
     if (!res) throw new Error("TONCENTER_NO_RESULT");
 
-    return {
-      exit_code: res.exit_code ?? res.exitCode,
-      stack: res.stack,
-    };
+    return res as T;
   } finally {
-    // safety
+    clearTimeout(t);
     release();
   }
+}
+
+async function toncenterRunGetMethod(
+  accountId: string,
+  methodName: string,
+  stack: any[] = []
+): Promise<TonRunGetResp> {
+  const res = await toncenterRpc<any>("runGetMethod", {
+    address: accountId,
+    method: methodName,
+    stack,
+  });
+
+  return {
+    exit_code: res.exit_code ?? res.exitCode,
+    stack: res.stack,
+  };
 }
 
 /* ===========================
@@ -291,6 +327,39 @@ function addressArgToBocB64(addr: string): string {
   const a = Address.parse(addr);
   const cell = beginCell().storeAddress(a).endCell();
   return bytesToBase64(cell.toBoc({ idx: false }));
+}
+
+async function runGetBigIntToncenter(
+  presaleAddr: string,
+  method: string,
+  walletAddr: string
+): Promise<bigint> {
+  const bocArg = addressArgToBocB64(walletAddr);
+
+  // Toncenter інколи хоче різні типи stack item
+  const candidates: any[][] = [
+    // найчастіше працює
+    [["tvm.Slice", bocArg]],
+    [["slice", bocArg]],
+    // інколи — object form
+    [{ type: "tvm.Slice", value: bocArg }],
+    [{ type: "slice", value: bocArg }],
+  ];
+
+  for (const st of candidates) {
+    try {
+      const r = await toncenterRunGetMethod(presaleAddr, method, st);
+      const exit = r.exit_code ?? r.exitCode ?? 1;
+      if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
+    } catch (e: any) {
+      const msg = String(e?.message ?? "");
+      // 422 часто = "не прийняв stack тип" → пробуємо інший candidate
+      if (msg.includes("TONCENTER_HTTP_422")) continue;
+      continue;
+    }
+  }
+
+  return 0n;
 }
 
 async function runGetBigIntTonApi(
@@ -306,41 +375,11 @@ async function runGetBigIntTonApi(
   return 0n;
 }
 
-async function runGetBigIntToncenter(
-  presaleAddr: string,
-  method: string,
-  walletAddr: string
-): Promise<bigint> {
-  const bocArg = addressArgToBocB64(walletAddr);
-
-  const candidates: any[][] = [
-    [["tvm.Slice", bocArg]],
-    [["slice", bocArg]],
-    [{ type: "tvm.Slice", value: bocArg }],
-    [{ type: "slice", value: bocArg }],
-  ];
-
-  for (const st of candidates) {
-    try {
-      const r = await toncenterRunGetMethod(presaleAddr, method, st);
-      const exit = r.exit_code ?? r.exitCode ?? 1;
-      if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
-      return 0n;
-    } catch (e: any) {
-      const msg = String(e?.message ?? "");
-      if (msg.includes("TONCENTER_HTTP_422")) continue;
-      continue;
-    }
-  }
-
-  return 0n;
-}
-
-/* ===== fallback (старий метод) ===== */
+/* ===== very-last fallback (TonAPI REST; may be blocked) ===== */
 
 async function tonApiGetAccountBalanceNano(address: string): Promise<bigint> {
   const url = `${TONAPI_BASE}/v2/accounts/${address}?t=${Date.now()}`;
-  const j = await fetchJson<any>(url);
+  const j = await fetchJson<any>(url, { retries: 0, timeoutMs: 12_000 });
   return BigInt(j?.balance ?? 0);
 }
 
@@ -349,7 +388,7 @@ async function tonApiGetWalletJettonBalanceNano(
   jettonMaster: string
 ): Promise<bigint> {
   const url = `${TONAPI_BASE}/v2/accounts/${walletAddress}/jettons?t=${Date.now()}`;
-  const j = await fetchJson<any>(url);
+  const j = await fetchJson<any>(url, { retries: 0, timeoutMs: 12_000 });
 
   const balances = Array.isArray(j?.balances) ? j.balances : [];
   const found = balances.find((b: any) => b?.jetton?.address === jettonMaster);
@@ -429,8 +468,8 @@ export async function getPresaleSnapshot(args?: {
   const bKey = baseKey(presaleAddress);
   const baseEntry: BaseEntry = BASE_CACHE.get(bKey) ?? { ts: 0 };
 
-  // basePromise (can still return cached while cooldown)
   const minInterval = force ? MIN_FORCE_INTERVAL_MS : MIN_FETCH_INTERVAL_MS;
+
   let basePromise:
     | Promise<
         Omit<
@@ -444,7 +483,6 @@ export async function getPresaleSnapshot(args?: {
     if (baseEntry.data && now - baseEntry.ts < minInterval) {
       basePromise = Promise.resolve(baseEntry.data);
     } else if (baseEntry.cooldownUntil && now < baseEntry.cooldownUntil) {
-      // ✅ During cooldown: serve cached base if we have it, otherwise surface an error
       if (baseEntry.data) {
         basePromise = Promise.resolve(baseEntry.data);
       } else {
@@ -453,35 +491,13 @@ export async function getPresaleSnapshot(args?: {
     } else {
       basePromise = (async () => {
         try {
-          let rRaised: TonRunGetResp | null = null;
-          let rSold: TonRunGetResp | null = null;
-          let rRound: TonRunGetResp | null = null;
-          let rRoundSold: TonRunGetResp | null = null;
-
-          const tonApiRetries = force ? 1 : 0;
-
-          try {
-            rRaised = await tonApiRunGetMethod(presaleAddress, "totalRaisedNano", [], {
-              retries: tonApiRetries,
-            });
-            rSold = await tonApiRunGetMethod(presaleAddress, "totalSoldNano", [], {
-              retries: tonApiRetries,
-            });
-            rRound = await tonApiRunGetMethod(presaleAddress, "currentRound", [], {
-              retries: tonApiRetries,
-            });
-            rRoundSold = await tonApiRunGetMethod(
-              presaleAddress,
-              "currentRoundSoldNano",
-              [],
-              { retries: tonApiRetries }
-            );
-          } catch {
-            rRaised = await toncenterRunGetMethod(presaleAddress, "totalRaisedNano");
-            rSold = await toncenterRunGetMethod(presaleAddress, "totalSoldNano");
-            rRound = await toncenterRunGetMethod(presaleAddress, "currentRound");
-            rRoundSold = await toncenterRunGetMethod(presaleAddress, "currentRoundSoldNano");
-          }
+          // ✅ PRIMARY: Toncenter getters (залізно в браузері)
+          const [rRaised, rSold, rRound, rRoundSold] = await Promise.all([
+            toncenterRunGetMethod(presaleAddress, "totalRaisedNano"),
+            toncenterRunGetMethod(presaleAddress, "totalSoldNano"),
+            toncenterRunGetMethod(presaleAddress, "currentRound"),
+            toncenterRunGetMethod(presaleAddress, "currentRoundSoldNano"),
+          ]);
 
           const ok =
             (rRaised.exit_code ?? rRaised.exitCode ?? 1) === 0 &&
@@ -493,7 +509,7 @@ export async function getPresaleSnapshot(args?: {
             !!rRound.stack?.length &&
             !!rRoundSold.stack?.length;
 
-          if (!ok) throw new Error("GETTERS_FAILED");
+          if (!ok) throw new Error("GETTERS_FAILED_TONCENTER");
 
           const totalRaisedNano = stackItemToBigInt(rRaised.stack![0]);
           const soldTotalNano = stackItemToBigInt(rSold.stack![0]);
@@ -510,6 +526,7 @@ export async function getPresaleSnapshot(args?: {
           BASE_CACHE.set(bKey, { ts: Date.now(), data: base });
           return base;
         } catch (e: any) {
+          // Toncenter rate-limit: якщо є кеш — віддай кеш; якщо нема — пробуй TonAPI як fallback
           if (e instanceof RateLimitError) {
             const prev = BASE_CACHE.get(bKey);
             const cooldownUntil = Date.now() + Math.max(30_000, e.retryAfterMs);
@@ -519,33 +536,79 @@ export async function getPresaleSnapshot(args?: {
               cooldownUntil,
             });
             if (prev?.data) return prev.data;
-            throw new Error("TONAPI_RATE_LIMIT_NO_CACHE");
           }
 
-          // fallback: TonAPI accounts/jettons (may be less accurate)
+          // ✅ FALLBACK #1: TonAPI runGetMethod (може бути CORS, але іноді рятує)
           try {
-            const totalRaisedNano = await tonApiGetAccountBalanceNano(presaleAddress);
-            const remainingNano = await tonApiGetWalletJettonBalanceNano(
-              presaleAddress,
-              JETTON_MASTER
-            );
-            const soldTotalNano =
-              TOTAL_PRESALE_NANO > remainingNano ? TOTAL_PRESALE_NANO - remainingNano : 0n;
-            const { currentRound, soldInRoundNano } = calcRoundFromSold(soldTotalNano);
+            const tonApiRetries = force ? 1 : 0;
+
+            const [rRaised, rSold, rRound, rRoundSold] = await Promise.all([
+              tonApiRunGetMethod(presaleAddress, "totalRaisedNano", [], {
+                retries: tonApiRetries,
+              }),
+              tonApiRunGetMethod(presaleAddress, "totalSoldNano", [], {
+                retries: tonApiRetries,
+              }),
+              tonApiRunGetMethod(presaleAddress, "currentRound", [], {
+                retries: tonApiRetries,
+              }),
+              tonApiRunGetMethod(presaleAddress, "currentRoundSoldNano", [], {
+                retries: tonApiRetries,
+              }),
+            ]);
+
+            const ok =
+              (rRaised.exit_code ?? rRaised.exitCode ?? 1) === 0 &&
+              (rSold.exit_code ?? rSold.exitCode ?? 1) === 0 &&
+              (rRound.exit_code ?? rRound.exitCode ?? 1) === 0 &&
+              (rRoundSold.exit_code ?? rRoundSold.exitCode ?? 1) === 0 &&
+              !!rRaised.stack?.length &&
+              !!rSold.stack?.length &&
+              !!rRound.stack?.length &&
+              !!rRoundSold.stack?.length;
+
+            if (!ok) throw new Error("GETTERS_FAILED_TONAPI");
+
+            const totalRaisedNano = stackItemToBigInt(rRaised.stack![0]);
+            const soldTotalNano = stackItemToBigInt(rSold.stack![0]);
+            const currentRound = Number(stackItemToBigInt(rRound.stack![0]));
+            const soldInRoundNano = stackItemToBigInt(rRoundSold.stack![0]);
 
             const base = {
-              currentRound,
-              soldTotalNano,
-              soldInRoundNano,
-              totalRaisedNano,
+              currentRound: clampRoundIndex(currentRound),
+              soldTotalNano: soldTotalNano < 0n ? 0n : soldTotalNano,
+              soldInRoundNano: soldInRoundNano < 0n ? 0n : soldInRoundNano,
+              totalRaisedNano: totalRaisedNano < 0n ? 0n : totalRaisedNano,
             };
 
             BASE_CACHE.set(bKey, { ts: Date.now(), data: base });
             return base;
           } catch {
-            const prev = BASE_CACHE.get(bKey);
-            if (prev?.data) return prev.data;
-            throw new Error("ALL_PROVIDERS_FAILED");
+            // ✅ LAST RESORT: TonAPI REST accounts/jettons (може бути заблоковано)
+            try {
+              const totalRaisedNano = await tonApiGetAccountBalanceNano(presaleAddress);
+              const remainingNano = await tonApiGetWalletJettonBalanceNano(
+                presaleAddress,
+                JETTON_MASTER
+              );
+              const soldTotalNano =
+                TOTAL_PRESALE_NANO > remainingNano ? TOTAL_PRESALE_NANO - remainingNano : 0n;
+              const { currentRound, soldInRoundNano } = calcRoundFromSold(soldTotalNano);
+
+              const base = {
+                currentRound,
+                soldTotalNano,
+                soldInRoundNano,
+                totalRaisedNano,
+              };
+
+              BASE_CACHE.set(bKey, { ts: Date.now(), data: base });
+              return base;
+            } catch {
+              const prev = BASE_CACHE.get(bKey);
+              if (prev?.data) return prev.data;
+              throw new Error("ALL_PROVIDERS_FAILED");
+            }
           }
         } finally {
           const cur = BASE_CACHE.get(bKey);
@@ -583,25 +646,12 @@ export async function getPresaleSnapshot(args?: {
       } else {
         const doClaim = (async () => {
           try {
-            const tonApiRetries = force ? 1 : 0;
-
-            try {
-              const [b, r] = await Promise.all([
-                runGetBigIntTonApi(presaleAddress, "claimableBuyerNano", walletAddress, {
-                  retries: tonApiRetries,
-                }),
-                runGetBigIntTonApi(presaleAddress, "claimableReferralNano", walletAddress, {
-                  retries: tonApiRetries,
-                }),
-              ]);
-              return { buyer: b, referral: r };
-            } catch {
-              const [b, r] = await Promise.all([
-                runGetBigIntToncenter(presaleAddress, "claimableBuyerNano", walletAddress),
-                runGetBigIntToncenter(presaleAddress, "claimableReferralNano", walletAddress),
-              ]);
-              return { buyer: b, referral: r };
-            }
+            // ✅ PRIMARY: Toncenter claimables
+            const [b, r] = await Promise.all([
+              runGetBigIntToncenter(presaleAddress, "claimableBuyerNano", walletAddress),
+              runGetBigIntToncenter(presaleAddress, "claimableReferralNano", walletAddress),
+            ]);
+            return { buyer: b, referral: r };
           } catch (e: any) {
             if (e instanceof RateLimitError) {
               const prev = CLAIM_CACHE.get(cKey);
@@ -614,7 +664,22 @@ export async function getPresaleSnapshot(args?: {
               });
               return { buyer: prev?.buyer ?? 0n, referral: prev?.referral ?? 0n };
             }
-            return { buyer: claimEntry.buyer ?? 0n, referral: claimEntry.referral ?? 0n };
+
+            // fallback: TonAPI claimables (може бути CORS)
+            try {
+              const tonApiRetries = force ? 1 : 0;
+              const [b, r] = await Promise.all([
+                runGetBigIntTonApi(presaleAddress, "claimableBuyerNano", walletAddress, {
+                  retries: tonApiRetries,
+                }),
+                runGetBigIntTonApi(presaleAddress, "claimableReferralNano", walletAddress, {
+                  retries: tonApiRetries,
+                }),
+              ]);
+              return { buyer: b, referral: r };
+            } catch {
+              return { buyer: claimEntry.buyer ?? 0n, referral: claimEntry.referral ?? 0n };
+            }
           } finally {
             const cur = CLAIM_CACHE.get(cKey);
             if (cur) delete cur.inFlight;
