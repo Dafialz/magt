@@ -10,6 +10,9 @@ const MILESTONES = [
   { label: "15,000,000$", value: 15_000_000 },
 ] as const;
 
+// 🔒 unlock threshold for first project
+const PROJECT_1_UNLOCK_USD = 10_000;
+
 export function ProjectsSection({
   lang,
   raisedUsd,
@@ -18,6 +21,8 @@ export function ProjectsSection({
   raisedUsd: number;
 }) {
   const progressPct = milestoneProgressPercent(raisedUsd);
+
+  const project1Unlocked = raisedUsd >= PROJECT_1_UNLOCK_USD;
 
   return (
     <Card>
@@ -54,7 +59,6 @@ export function ProjectsSection({
           ))}
         </div>
 
-        {/* PROGRESS */}
         <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-zinc-800">
           <div
             className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-purple-500 transition-[width] duration-700"
@@ -62,7 +66,6 @@ export function ProjectsSection({
           />
         </div>
 
-        {/* SEGMENTS */}
         <div className="mt-2 flex justify-between text-[11px] text-zinc-500">
           <span>{t(lang, "projects__seg_seed")}</span>
           <span>{t(lang, "projects__seg_grow")}</span>
@@ -73,42 +76,51 @@ export function ProjectsSection({
 
       {/* PROJECT CARDS */}
       <div className="mt-6 grid gap-4 md:grid-cols-2">
-        {/* MAGIC TIME TAP */}
-        <a
-          href="https://t.me/MagicTimeTapBot/magictime?startapp=ref_zzyUPc53FPOwOSn2DcNZirHyusu1"
-          target="_blank"
-          rel="noreferrer"
-          className="group rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5 transition hover:border-zinc-600"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-sm font-semibold">
-              {t(lang, "projects__tap_title")}
+        {/* PROJECT 1 — MAGIC TIME TAP */}
+        {project1Unlocked ? (
+          <a
+            href="https://t.me/MagicTimeTapBot/magictime?startapp=ref_zzyUPc53FPOwOSn2DcNZirHyusu1"
+            target="_blank"
+            rel="noreferrer"
+            className="group rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5 transition hover:border-zinc-600"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold">
+                {t(lang, "projects__tap_title")}
+              </div>
+              <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-[11px] text-emerald-300">
+                {t(lang, "projects__live")}
+              </span>
             </div>
-            <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-[11px] text-emerald-300">
-              {t(lang, "projects__live")}
-            </span>
-          </div>
 
-          <div className="mt-2 text-sm text-zinc-400">
-            {t(lang, "projects__tap_desc")}
-          </div>
+            <div className="mt-2 text-sm text-zinc-400">
+              {t(lang, "projects__tap_desc")}
+            </div>
 
-          <div className="mt-4 text-xs text-zinc-500 group-hover:text-zinc-300">
-            {t(lang, "projects__open")}
-          </div>
-        </a>
+            <div className="mt-4 text-xs text-zinc-500 group-hover:text-zinc-300">
+              {t(lang, "projects__open")}
+            </div>
+          </a>
+        ) : (
+          <LockedProjectCard
+            lang={lang}
+            title={t(lang, "projects__tap_title")}
+            subtitle={`Unlocks at $${formatMoney(PROJECT_1_UNLOCK_USD)}`}
+          />
+        )}
 
-        <BlurCard
+        {/* OTHER PROJECTS */}
+        <LockedProjectCard
           lang={lang}
           title={t(lang, "projects__p2")}
           subtitle={t(lang, "projects__coming_soon")}
         />
-        <BlurCard
+        <LockedProjectCard
           lang={lang}
           title={t(lang, "projects__p3")}
           subtitle={t(lang, "projects__coming_soon")}
         />
-        <BlurCard
+        <LockedProjectCard
           lang={lang}
           title={t(lang, "projects__p4")}
           subtitle={t(lang, "projects__coming_soon")}
@@ -118,30 +130,7 @@ export function ProjectsSection({
   );
 }
 
-function milestoneProgressPercent(raisedUsd: number) {
-  const x = Math.max(0, Number.isFinite(raisedUsd) ? raisedUsd : 0);
-
-  const seg = [
-    { a: 0, b: 500_000 },
-    { a: 500_000, b: 5_000_000 },
-    { a: 5_000_000, b: 15_000_000 },
-  ] as const;
-
-  const segWidth = 100 / 3;
-
-  if (x <= seg[0].b) return (x / seg[0].b) * segWidth;
-  if (x <= seg[1].b)
-    return segWidth + ((x - seg[1].a) / (seg[1].b - seg[1].a)) * segWidth;
-  if (x <= seg[2].b)
-    return (
-      2 * segWidth +
-      ((x - seg[2].a) / (seg[2].b - seg[2].a)) * segWidth
-    );
-
-  return 100;
-}
-
-function BlurCard({
+function LockedProjectCard({
   lang,
   title,
   subtitle,
@@ -170,6 +159,29 @@ function BlurCard({
       </div>
     </div>
   );
+}
+
+function milestoneProgressPercent(raisedUsd: number) {
+  const x = Math.max(0, Number.isFinite(raisedUsd) ? raisedUsd : 0);
+
+  const seg = [
+    { a: 0, b: 500_000 },
+    { a: 500_000, b: 5_000_000 },
+    { a: 5_000_000, b: 15_000_000 },
+  ] as const;
+
+  const segWidth = 100 / 3;
+
+  if (x <= seg[0].b) return (x / seg[0].b) * segWidth;
+  if (x <= seg[1].b)
+    return segWidth + ((x - seg[1].a) / (seg[1].b - seg[1].a)) * segWidth;
+  if (x <= seg[2].b)
+    return (
+      2 * segWidth +
+      ((x - seg[2].a) / (seg[2].b - seg[2].a)) * segWidth
+    );
+
+  return 100;
 }
 
 function formatMoney(n: number) {
