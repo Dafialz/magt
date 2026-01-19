@@ -36,14 +36,6 @@ function sanitizeDecimal(raw: string, maxDecimals: number): string {
   return v;
 }
 
-function formatPriceTon(n: number) {
-  if (!Number.isFinite(n) || n <= 0) return "";
-  return new Intl.NumberFormat(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 6,
-  }).format(n);
-}
-
 export function TonToMagtCalculator({
   lang,
   currentRound,
@@ -113,8 +105,6 @@ export function TonToMagtCalculator({
             value={customPrice}
             onChange={(e) => setCustomPrice(sanitizeDecimal(e.target.value, 6))}
             className="mt-3 w-full rounded-xl border border-white/10 bg-black/35 px-3 py-2 outline-none"
-            // ✅ Можеш лишити порожній placeholder, щоб взагалі нічого не показувати
-            // або показати нейтрально: "0.000000"
             placeholder="0.000000"
             inputMode="decimal"
             autoComplete="off"
