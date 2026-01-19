@@ -54,7 +54,6 @@ export const TONCENTER_API_KEY =
  * Change ONLY these when you redeploy.
  */
 export const PRESALE_CONTRACT = IS_TESTNET
-  // ✅ REAL testnet presale (current)
   ? "EQA5hmaTH4pNyqOQeGCjxIMlYmpgqrbSnS_RaYBXKPJUpUeW"
   : "EQB5YKJxw9D_FFLzHHg4yXlbaSWlmy9p4d2Akk3TsnlYxx94";
 

@@ -444,15 +444,12 @@ export async function getPresaleSnapshot(args?: {
     if (baseEntry.data && now - baseEntry.ts < minInterval) {
       basePromise = Promise.resolve(baseEntry.data);
     } else if (baseEntry.cooldownUntil && now < baseEntry.cooldownUntil) {
-      // ✅ during cooldown just serve cached base (or zeros)
-      basePromise = Promise.resolve(
-        baseEntry.data ?? {
-          currentRound: 0,
-          soldTotalNano: 0n,
-          soldInRoundNano: 0n,
-          totalRaisedNano: 0n,
-        }
-      );
+      // ✅ During cooldown: serve cached base if we have it, otherwise surface an error
+      if (baseEntry.data) {
+        basePromise = Promise.resolve(baseEntry.data);
+      } else {
+        throw new Error("PROVIDERS_COOLDOWN_NO_CACHE");
+      }
     } else {
       basePromise = (async () => {
         try {
@@ -521,30 +518,35 @@ export async function getPresaleSnapshot(args?: {
               data: prev?.data,
               cooldownUntil,
             });
-            return prev?.data ?? {
-              currentRound: 0,
-              soldTotalNano: 0n,
-              soldInRoundNano: 0n,
-              totalRaisedNano: 0n,
-            };
+            if (prev?.data) return prev.data;
+            throw new Error("TONAPI_RATE_LIMIT_NO_CACHE");
           }
 
           // fallback: TonAPI accounts/jettons (may be less accurate)
-          const totalRaisedNano = await tonApiGetAccountBalanceNano(presaleAddress);
-          const remainingNano = await tonApiGetWalletJettonBalanceNano(presaleAddress, JETTON_MASTER);
-          const soldTotalNano =
-            TOTAL_PRESALE_NANO > remainingNano ? TOTAL_PRESALE_NANO - remainingNano : 0n;
-          const { currentRound, soldInRoundNano } = calcRoundFromSold(soldTotalNano);
+          try {
+            const totalRaisedNano = await tonApiGetAccountBalanceNano(presaleAddress);
+            const remainingNano = await tonApiGetWalletJettonBalanceNano(
+              presaleAddress,
+              JETTON_MASTER
+            );
+            const soldTotalNano =
+              TOTAL_PRESALE_NANO > remainingNano ? TOTAL_PRESALE_NANO - remainingNano : 0n;
+            const { currentRound, soldInRoundNano } = calcRoundFromSold(soldTotalNano);
 
-          const base = {
-            currentRound,
-            soldTotalNano,
-            soldInRoundNano,
-            totalRaisedNano,
-          };
+            const base = {
+              currentRound,
+              soldTotalNano,
+              soldInRoundNano,
+              totalRaisedNano,
+            };
 
-          BASE_CACHE.set(bKey, { ts: Date.now(), data: base });
-          return base;
+            BASE_CACHE.set(bKey, { ts: Date.now(), data: base });
+            return base;
+          } catch {
+            const prev = BASE_CACHE.get(bKey);
+            if (prev?.data) return prev.data;
+            throw new Error("ALL_PROVIDERS_FAILED");
+          }
         } finally {
           const cur = BASE_CACHE.get(bKey);
           if (cur) delete cur.inFlight;
