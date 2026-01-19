@@ -1,3 +1,4 @@
+// src/components/TonToMagtCalculator.tsx
 import React from "react";
 import { Card } from "./Card";
 import { toNumberSafe } from "../lib/format";
@@ -53,7 +54,7 @@ export function TonToMagtCalculator({
   // YOU PAY
   const [ton, setTon] = React.useState("50");
 
-  // PRICE PER MAGT
+  // ✅ Custom price is OPTIONAL and starts empty (no confusion)
   const [customPrice, setCustomPrice] = React.useState("");
 
   const tonNum = Math.max(0, toNumberSafe(ton));
@@ -62,7 +63,8 @@ export function TonToMagtCalculator({
   const roundPrice = getRoundPriceTon(currentRound);
 
   const customNum = toNumberSafe(customPrice);
-  const price = customPrice !== "" && customNum > 0 ? customNum : roundPrice;
+  const useCustom = customPrice.trim() !== "" && customNum > 0;
+  const price = useCustom ? customNum : roundPrice;
 
   const magt = price > 0 ? tonNum / price : 0;
 
@@ -81,6 +83,9 @@ export function TonToMagtCalculator({
           <div className="text-sm font-semibold">
             {formatPriceTon(roundPrice)} TON / MAGT
           </div>
+          <div className="mt-1 text-[11px] text-zinc-500">
+            Leave custom price empty to use round price
+          </div>
         </div>
       </div>
 
@@ -97,6 +102,8 @@ export function TonToMagtCalculator({
             className="mt-3 w-full rounded-xl border border-white/10 bg-black/35 px-3 py-2 outline-none"
             placeholder="0.00"
             inputMode="decimal"
+            autoComplete="off"
+            name="magt_ton_amount"
           />
 
           <div className="mt-3 flex gap-2">
@@ -109,15 +116,17 @@ export function TonToMagtCalculator({
 
         {/* PRICE */}
         <div className="rounded-2xl border border-white/10 bg-black/40 p-4 backdrop-blur-md">
-          <div className="text-xs text-zinc-400">Price per MAGT</div>
+          <div className="text-xs text-zinc-400">Custom price (optional)</div>
           <div className="mt-1 text-sm font-semibold">TON / MAGT</div>
 
           <input
             value={customPrice}
             onChange={(e) => setCustomPrice(sanitizeDecimal(e.target.value, 6))}
             className="mt-3 w-full rounded-xl border border-white/10 bg-black/35 px-3 py-2 outline-none"
-            placeholder="0.000000"
+            placeholder={formatPriceTon(roundPrice)}
             inputMode="decimal"
+            autoComplete="off"
+            name="magt_custom_price"
           />
 
           <button
@@ -127,6 +136,10 @@ export function TonToMagtCalculator({
           >
             Use round price
           </button>
+
+          <div className="mt-2 text-[11px] text-zinc-500">
+            {useCustom ? "Using custom price" : "Using round price"}
+          </div>
         </div>
 
         {/* YOU RECEIVE */}
