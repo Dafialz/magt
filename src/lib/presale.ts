@@ -41,26 +41,38 @@ export type PresaleSnapshot = {
   claimableNano: bigint;
 };
 
-/* ===== price ===== */
+/* ===== price (✅ EXACTLY as in presale.tact: roundPriceNano) =====
+   roundPriceNano(i) returns nanoTON per 1 token
+   so TON per token = nanoTON / 1e9
+*/
+
+export const ROUND_PRICE_NANO = [
+  11489000, 13443000, 15729000, 18403000, 21532000,
+  25191000, 29471000, 34483000, 40345000, 47206000,
+  55231000, 64618000, 75603000, 88455000, 103495000,
+  121086000, 141671000, 165757000, 193935000, 226397000,
+];
+
+export function getRoundPriceNano(roundIndex: number): bigint {
+  const i = clampRoundIndex(roundIndex);
+  const v = ROUND_PRICE_NANO[i] ?? 0;
+  return BigInt(v < 0 ? 0 : v);
+}
+
+// ✅ THIS is what calculator should use (TON per 1 MAGT)
+export function getRoundPriceTon(roundIndex: number): number {
+  const nano = Number(getRoundPriceNano(roundIndex));
+  if (!Number.isFinite(nano) || nano <= 0) return 0;
+  return nano / 1e9;
+}
+
+/* ===== legacy (kept to avoid breaking imports; NOT used by calculator) ===== */
 export function priceUsd(roundIndex: number): number {
   const base = 0.011;
   const step = 0.001;
   return base + roundIndex * step;
 }
-
 export const TON_USD_REFERENCE = 5;
-
-export function getRoundPriceTon(roundIndex: number): number {
-  const i = clampRoundIndex(roundIndex);
-  const usd = priceUsd(i);
-
-  const tonUsd = TON_USD_REFERENCE;
-  if (!Number.isFinite(usd) || usd <= 0) return 0;
-  if (!Number.isFinite(tonUsd) || tonUsd <= 0) return 0;
-
-  const ton = usd / tonUsd;
-  return Number.isFinite(ton) && ton > 0 ? ton : 0;
-}
 
 /* ===== helpers ===== */
 
@@ -348,7 +360,6 @@ async function runGetMaybeBigIntToncenter(
       const r = await toncenterRunGetMethod(presaleAddr, method, st);
       const exit = r.exit_code ?? r.exitCode ?? 1;
       if (exit === 0 && r.stack?.length) return stackItemToBigInt(r.stack[0]);
-      // if stack type not accepted / method missing, try next
       continue;
     } catch (e: any) {
       const msg = String(e?.message ?? "");
