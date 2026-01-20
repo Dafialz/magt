@@ -2422,6 +2422,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__status_failed": "Transaction failed.",
     "buy__try_again": "Try again",
     "buy__min_error": "Minimum is 1 TON",
+    "calc__price": "Price",
+    "calc__price_unit": "price MAGT",
   },
   "uk": {
     "app__1": "MAGIC TIME",
@@ -2594,6 +2596,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__status_failed": "Транзакція не вдалася.",
     "buy__try_again": "Спробувати ще раз",
     "buy__min_error": "Мінімум — 1 TON",
+    "calc__price": "Ціна",
+    "calc__price_unit": "ціна MAGT",
   },
   "ru": {
     "app__1": "MAGIC TIME",
@@ -2766,6 +2770,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__status_failed": "Транзакция не удалась.",
     "buy__try_again": "Попробовать снова",
     "buy__min_error": "Минимум — 1 TON",
+    "calc__price": "Цена",
+    "calc__price_unit": "цена MAGT",
   },
   "es": {
     "app__1": "MAGIC TIME",
@@ -2938,6 +2944,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__status_failed": "Falló la transacción.",
     "buy__try_again": "Intentar de nuevo",
     "buy__min_error": "Mínimo: 1 TON",
+    "calc__price": "Precio",
+    "calc__price_unit": "precio MAGT",
   },
   "fr": {
     "app__1": "MAGIC TIME",
@@ -3110,6 +3118,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__status_failed": "Échec de la transaction.",
     "buy__try_again": "Réessayer",
     "buy__min_error": "Minimum : 1 TON",
+    "calc__price": "Prix",
+    "calc__price_unit": "prix MAGT",
   },
   "pt": {
     "app__1": "MAGIC TIME",
@@ -3282,6 +3292,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__status_failed": "Falha na transação.",
     "buy__try_again": "Tentar novamente",
     "buy__min_error": "Mínimo: 1 TON",
+    "calc__price": "Preço",
+    "calc__price_unit": "preço MAGT",
   },
   "cn": {
     "app__1": "MAGIC TIME",
@@ -3454,6 +3466,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__status_failed": "交易失败。",
     "buy__try_again": "重试",
     "buy__min_error": "最低：1 TON",
+    "calc__price": "价格",
+    "calc__price_unit": "MAGT 价格",
   },
   "in": {
     "app__1": "MAGIC TIME",
@@ -3626,6 +3640,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__status_failed": "ट्रांज़ैक्शन विफल।",
     "buy__try_again": "फिर से कोशिश करें",
     "buy__min_error": "न्यूनतम: 1 TON",
+    "calc__price": "कीमत",
+    "calc__price_unit": "MAGT कीमत",
   },
   "id": {
     "app__1": "MAGIC TIME",
@@ -3798,6 +3814,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__status_failed": "Transaksi gagal.",
     "buy__try_again": "Coba lagi",
     "buy__min_error": "Minimum: 1 TON",
+    "calc__price": "Harga",
+    "calc__price_unit": "harga MAGT",
   },
   "sa": {
     "app__1": "MAGIC TIME",
@@ -3970,6 +3988,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__status_failed": "فشلت المعاملة.",
     "buy__try_again": "حاول مرة أخرى",
     "buy__min_error": "الحد الأدنى: 1 TON",
+    "calc__price": "السعر",
+    "calc__price_unit": "سعر MAGT",
   },
   "bd": {
     "app__1": "MAGIC TIME",
@@ -4142,6 +4162,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__status_failed": "লেনদেন ব্যর্থ হয়েছে।",
     "buy__try_again": "আবার চেষ্টা করুন",
     "buy__min_error": "ন্যূনতম: 1 TON",
+    "calc__price": "মূল্য",
+    "calc__price_unit": "MAGT মূল্য",
   },
 };
 

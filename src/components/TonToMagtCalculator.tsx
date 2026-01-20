@@ -69,8 +69,8 @@ export function TonToMagtCalculator({
 
         {/* PRICE */}
         <div className="rounded-2xl border border-white/10 bg-black/40 p-4 backdrop-blur-md">
-          <div className="text-xs text-zinc-400">Price</div>
-          <div className="mt-1 text-sm font-semibold">price MAGT</div>
+          <div className="text-xs text-zinc-400">{t(lang, "calc__price")}</div>
+          <div className="mt-1 text-sm font-semibold">{t(lang, "calc__price_unit")}</div>
 
           <div className="mt-3 text-xl font-semibold">
             {price.toFixed(6)}
