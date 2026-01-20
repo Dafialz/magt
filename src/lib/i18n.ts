@@ -2425,6 +2425,10 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "calc__price": "Price",
     "calc__price_unit": "price MAGT",
     "presale_progress__total_presale": "Total presale",
+    "copy_ref": "Copy referral link",
+    "copied": "Copied",
+    "ref__need_wallet": "Connect wallet to copy referral link",
+  
   
   },
   "uk": {
@@ -2601,6 +2605,10 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "calc__price": "Ціна",
     "calc__price_unit": "ціна MAGT",
     "presale_progress__total_presale": "Всього пресейл",
+    "copy_ref": "Скопіювати реферальне посилання",
+    "copied": "Скопійовано",
+    "ref__need_wallet": "Підключіть гаманець, щоб скопіювати реферальне посилання",
+  
   
   },
   "ru": {
@@ -2777,6 +2785,10 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "calc__price": "Цена",
     "calc__price_unit": "цена MAGT",
     "presale_progress__total_presale": "Всего пресейл",
+    "copy_ref": "Скопировать реферальную ссылку",
+    "copied": "Скопировано",
+    "ref__need_wallet": "Подключите кошелёк, чтобы скопировать реферальную ссылку",
+  
   
   },
   "es": {
@@ -2953,6 +2965,10 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "calc__price": "Precio",
     "calc__price_unit": "precio MAGT",
     "presale_progress__total_presale": "Preventа total",
+    "copy_ref": "Copiar enlace de referido",
+    "copied": "Copiado",
+    "ref__need_wallet": "Conecta la billetera para copiar el enlace de referido",
+  
   
   },
   "fr": {
@@ -3129,6 +3145,10 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "calc__price": "Prix",
     "calc__price_unit": "prix MAGT",
     "presale_progress__total_presale": "Prévente totale",
+    "copy_ref": "Copier le lien de parrainage",
+    "copied": "Copié",
+    "ref__need_wallet": "Connectez le wallet pour copier le lien de parrainage",
+  
   
   },
   "pt": {
@@ -3305,6 +3325,10 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "calc__price": "Preço",
     "calc__price_unit": "preço MAGT",
     "presale_progress__total_presale": "Pré-venda total",
+    "copy_ref": "Copiar link de indicação",
+    "copied": "Copiado",
+    "ref__need_wallet": "Conecte a carteira para copiar o link de indicação",
+  
   
   },
   "cn": {
@@ -3481,6 +3505,10 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "calc__price": "价格",
     "calc__price_unit": "MAGT 价格",
     "presale_progress__total_presale": "预售总计",
+    "copy_ref": "复制邀请链接",
+    "copied": "已复制",
+    "ref__need_wallet": "连接钱包后才能复制邀请链接",
+  
   
   },
   "in": {
@@ -3657,6 +3685,10 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "calc__price": "कीमत",
     "calc__price_unit": "MAGT कीमत",
     "presale_progress__total_presale": "कुल प्रीसेल",
+    "copy_ref": "रेफरल लिंक कॉपी करें",
+    "copied": "कॉपी हो गया",
+    "ref__need_wallet": "रेफरल लिंक कॉपी करने के लिए वॉलेट कनेक्ट करें",
+  
   
   },
   "id": {
@@ -3833,6 +3865,10 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "calc__price": "Harga",
     "calc__price_unit": "harga MAGT",
     "presale_progress__total_presale": "Total presale",
+    "copy_ref": "Salin tautan referral",
+    "copied": "Tersalin",
+    "ref__need_wallet": "Hubungkan dompet untuk menyalin tautan referral",
+  
   
   },
   "sa": {
@@ -4009,6 +4045,10 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "calc__price": "السعر",
     "calc__price_unit": "سعر MAGT",
     "presale_progress__total_presale": "إجمالي البيع المسبق",
+    "copy_ref": "نسخ رابط الإحالة",
+    "copied": "تم النسخ",
+    "ref__need_wallet": "قم بربط المحفظة لنسخ رابط الإحالة",
+  
   
   },
   "bd": {
@@ -4185,6 +4225,10 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "calc__price": "মূল্য",
     "calc__price_unit": "MAGT মূল্য",
     "presale_progress__total_presale": "মোট প্রিসেল",
+    "copy_ref": "রেফারেল লিংক কপি করুন",
+    "copied": "কপি হয়েছে",
+    "ref__need_wallet": "রেফারেল লিংক কপি করতে ওয়ালেট কানেক্ট করুন",
+  
   
   },
 };
