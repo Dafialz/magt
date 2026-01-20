@@ -203,17 +203,17 @@ export default function App() {
         {/* ✅ 3 SMALL INFO CARDS (ABOVE MAIN 2 CARDS) */}
         <div className="grid gap-4 sm:grid-cols-3">
           <Card className="p-4">
-            <div className="text-xs text-zinc-400">{t(lang, "app__15")}</div>
+            <div className="text-xs text-zinc-400">{t(lang, "app__network")}</div>
             <div className="mt-1 text-sm font-semibold">TON</div>
           </Card>
 
           <Card className="p-4">
-            <div className="text-xs text-zinc-400">REF BONUS +5%</div>
-            <div className="mt-1 text-sm font-semibold">MAGT</div>
+            <div className="text-xs text-zinc-400">{t(lang, "app__ref_bonus")}</div>
+            <div className="mt-1 text-sm font-semibold">+5%</div>
           </Card>
 
           <Card className="p-4">
-            <div className="text-xs text-zinc-400">{t(lang, "app__17")}</div>
+            <div className="text-xs text-zinc-400">{t(lang, "app__token")}</div>
             <div className="mt-1 text-sm font-semibold">MAGT</div>
           </Card>
         </div>

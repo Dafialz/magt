@@ -2407,6 +2407,9 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "marketing": "Marketing",
     "other": "Other projects",
     "tokenomics__locked_suffix": "(locked)",
+    "app__network": "Network",
+    "app__ref_bonus": "Referral bonus",
+    "app__token": "Token",
   },
   "uk": {
     "app__1": "MAGIC TIME",
@@ -2564,6 +2567,9 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "marketing": "Маркетинг",
     "other": "Інші проєкти",
     "tokenomics__locked_suffix": "(заблоковано)",
+    "app__network": "Мережа",
+    "app__ref_bonus": "Реферальний бонус",
+    "app__token": "Токен",
   },
   "ru": {
     "app__1": "MAGIC TIME",
@@ -2721,6 +2727,9 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "marketing": "Маркетинг",
     "other": "Другие проекты",
     "tokenomics__locked_suffix": "(заблокировано)",
+    "app__network": "Сеть",
+    "app__ref_bonus": "Реферальный бонус",
+    "app__token": "Токен",
   },
   "es": {
     "app__1": "MAGIC TIME",
@@ -2878,6 +2887,9 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "marketing": "Marketing",
     "other": "Otros proyectos",
     "tokenomics__locked_suffix": "(bloqueado)",
+    "app__network": "Red",
+    "app__ref_bonus": "Bono por referidos",
+    "app__token": "Token",
   },
   "fr": {
     "app__1": "MAGIC TIME",
@@ -3035,6 +3047,9 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "marketing": "Marketing",
     "other": "Autres projets",
     "tokenomics__locked_suffix": "(verrouillée)",
+    "app__network": "Réseau",
+    "app__ref_bonus": "Bonus de parrainage",
+    "app__token": "Token",
   },
   "pt": {
     "app__1": "MAGIC TIME",
@@ -3192,6 +3207,9 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "marketing": "Marketing",
     "other": "Outros projetos",
     "tokenomics__locked_suffix": "(bloqueada)",
+    "app__network": "Rede",
+    "app__ref_bonus": "Bônus de indicação",
+    "app__token": "Token",
   },
   "cn": {
     "app__1": "MAGIC TIME",
@@ -3349,6 +3367,9 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "marketing": "营销",
     "other": "其他项目",
     "tokenomics__locked_suffix": "（锁定）",
+    "app__network": "网络",
+    "app__ref_bonus": "推荐奖励",
+    "app__token": "代币",
   },
   "in": {
     "app__1": "MAGIC TIME",
@@ -3506,6 +3527,9 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "marketing": "मार्केटिंग",
     "other": "अन्य प्रोजेक्ट्स",
     "tokenomics__locked_suffix": "(locked)",
+    "app__network": "नेटवर्क",
+    "app__ref_bonus": "रेफरल बोनस",
+    "app__token": "टोकन",
   },
   "id": {
     "app__1": "MAGIC TIME",
@@ -3663,6 +3687,9 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "marketing": "Marketing",
     "other": "Proyek lain",
     "tokenomics__locked_suffix": "(terkunci)",
+    "app__network": "Jaringan",
+    "app__ref_bonus": "Bonus referral",
+    "app__token": "Token",
   },
   "sa": {
     "app__1": "MAGIC TIME",
@@ -3820,6 +3847,9 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "marketing": "التسويق",
     "other": "مشاريع أخرى",
     "tokenomics__locked_suffix": "(مقفل)",
+    "app__network": "الشبكة",
+    "app__ref_bonus": "مكافأة الإحالة",
+    "app__token": "التوكن",
   },
   "bd": {
     "app__1": "MAGIC TIME",
@@ -3977,6 +4007,9 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "marketing": "মার্কেটিং",
     "other": "অন্যান্য প্রজেক্ট",
     "tokenomics__locked_suffix": "(লকড)",
+    "app__network": "নেটওয়ার্ক",
+    "app__ref_bonus": "রেফারেল বোনাস",
+    "app__token": "টোকেন",
   },
 };
 
