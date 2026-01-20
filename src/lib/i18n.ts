@@ -4278,7 +4278,7 @@ export function t(lang: LangCode, key: string) {
     DICT[normLang]?.[k] ??
     UI_TEXT.en?.[k] ??
     DICT.en?.[k] ??
-    // if alias didn't exist but original did
+    // if alias didn't exist but original did.
     UI_TEXT[normLang]?.[key] ??
     DICT[normLang]?.[key] ??
     UI_TEXT.en?.[key] ??
