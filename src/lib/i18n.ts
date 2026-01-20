@@ -2424,6 +2424,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__min_error": "Minimum is 1 TON",
     "calc__price": "Price",
     "calc__price_unit": "price MAGT",
+    "presale_progress__total_presale": "Total presale",
+  
   },
   "uk": {
     "app__1": "MAGIC TIME",
@@ -2598,6 +2600,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__min_error": "Мінімум — 1 TON",
     "calc__price": "Ціна",
     "calc__price_unit": "ціна MAGT",
+    "presale_progress__total_presale": "Всього пресейл",
+  
   },
   "ru": {
     "app__1": "MAGIC TIME",
@@ -2772,6 +2776,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__min_error": "Минимум — 1 TON",
     "calc__price": "Цена",
     "calc__price_unit": "цена MAGT",
+    "presale_progress__total_presale": "Всего пресейл",
+  
   },
   "es": {
     "app__1": "MAGIC TIME",
@@ -2946,6 +2952,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__min_error": "Mínimo: 1 TON",
     "calc__price": "Precio",
     "calc__price_unit": "precio MAGT",
+    "presale_progress__total_presale": "Preventа total",
+  
   },
   "fr": {
     "app__1": "MAGIC TIME",
@@ -3120,6 +3128,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__min_error": "Minimum : 1 TON",
     "calc__price": "Prix",
     "calc__price_unit": "prix MAGT",
+    "presale_progress__total_presale": "Prévente totale",
+  
   },
   "pt": {
     "app__1": "MAGIC TIME",
@@ -3294,6 +3304,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__min_error": "Mínimo: 1 TON",
     "calc__price": "Preço",
     "calc__price_unit": "preço MAGT",
+    "presale_progress__total_presale": "Pré-venda total",
+  
   },
   "cn": {
     "app__1": "MAGIC TIME",
@@ -3468,6 +3480,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__min_error": "最低：1 TON",
     "calc__price": "价格",
     "calc__price_unit": "MAGT 价格",
+    "presale_progress__total_presale": "预售总计",
+  
   },
   "in": {
     "app__1": "MAGIC TIME",
@@ -3642,6 +3656,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__min_error": "न्यूनतम: 1 TON",
     "calc__price": "कीमत",
     "calc__price_unit": "MAGT कीमत",
+    "presale_progress__total_presale": "कुल प्रीसेल",
+  
   },
   "id": {
     "app__1": "MAGIC TIME",
@@ -3816,6 +3832,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__min_error": "Minimum: 1 TON",
     "calc__price": "Harga",
     "calc__price_unit": "harga MAGT",
+    "presale_progress__total_presale": "Total presale",
+  
   },
   "sa": {
     "app__1": "MAGIC TIME",
@@ -3990,6 +4008,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__min_error": "الحد الأدنى: 1 TON",
     "calc__price": "السعر",
     "calc__price_unit": "سعر MAGT",
+    "presale_progress__total_presale": "إجمالي البيع المسبق",
+  
   },
   "bd": {
     "app__1": "MAGIC TIME",
@@ -4164,6 +4184,8 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "buy__min_error": "ন্যূনতম: 1 TON",
     "calc__price": "মূল্য",
     "calc__price_unit": "MAGT মূল্য",
+    "presale_progress__total_presale": "মোট প্রিসেল",
+  
   },
 };
 

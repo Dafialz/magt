@@ -42,7 +42,7 @@ export function PresaleProgress({
         {/* ===== TOTAL PRESALE ===== */}
         <div>
           <div className="flex items-center justify-between text-sm">
-            <span className="font-semibold">Total presale</span>
+            <span className="font-semibold">{t(lang, "presale_progress__total_presale")}</span>
             <span className="text-zinc-400">{Math.floor(totalProgress * 100)}%</span>
           </div>
 
