@@ -273,7 +273,12 @@ export default function App() {
         </div>
 
         <div className="mt-10">
-          <PresaleWidget lang={lang} onTxSent={forceRefreshAfterTx} />
+          {/* ✅ FIX: pass currentRound so Buy MAGT "You receive" uses round price */}
+          <PresaleWidget
+            lang={lang}
+            currentRound={currentRound}
+            onTxSent={forceRefreshAfterTx}
+          />
         </div>
 
         <div className="mt-10">

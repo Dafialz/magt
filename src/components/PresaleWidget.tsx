@@ -6,6 +6,7 @@ import { toNumberSafe } from "../lib/format";
 import { safeValidUntil, toNanoTon } from "../lib/ton";
 import { PRESALE_CONTRACT } from "../lib/config";
 import type { LangCode } from "../lib/i18n";
+import { getRoundPriceTon } from "../lib/presale";
 
 function bytesToBase64(bytes: Uint8Array) {
   let binary = "";
@@ -16,9 +17,6 @@ function bytesToBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
-/**
- * Buy opcode
- */
 function buildBuyPayloadBase64(ref: Address) {
   const BUY_OPCODE = 0x42555901;
   const cell = beginCell().storeUint(BUY_OPCODE, 32).storeAddress(ref).endCell();
@@ -43,12 +41,13 @@ type TxStatus = "idle" | "confirming" | "sent" | "error";
 
 export function PresaleWidget({
   lang,
+  currentRound,
   onTxSent,
 }: {
   lang: LangCode;
+  currentRound: number;
   onTxSent?: () => void;
 }) {
-  // ✅ keep prop for compatibility with App.tsx, but mark as used
   void lang;
 
   const addr = useTonAddress();
@@ -68,7 +67,8 @@ export function PresaleWidget({
   }, [addr]);
 
   const ton = toNumberSafe(tonAmount);
-  const receiveMagt = ton > 0 ? ton : 0; // ⬅️ легко замінити формулу
+  const roundPrice = getRoundPriceTon(currentRound);
+  const receiveMagt = roundPrice > 0 ? ton / roundPrice : 0;
 
   async function buyWithTon() {
     if (!addr) return;
@@ -105,19 +105,11 @@ export function PresaleWidget({
     }
   }
 
-  const buttonText = !addr
-    ? "Connect wallet"
-    : loading
-    ? "Processing..."
-    : "Buy MAGT";
-
   return (
     <Card>
-      {/* Header */}
       <div className="text-lg font-semibold">Buy MAGT</div>
       <div className="text-xs text-zinc-400">Pay in TON · Instant on-chain</div>
 
-      {/* Input */}
       <div className="mt-4">
         <div className="mb-1 text-xs text-zinc-400">You pay (TON)</div>
         <input
@@ -128,23 +120,20 @@ export function PresaleWidget({
         />
       </div>
 
-      {/* Receive */}
       <div className="mt-2 text-sm text-zinc-300">
         You receive (MAGT):{" "}
-        <span className="font-semibold">{receiveMagt.toFixed(3)}</span>
+        <span className="font-semibold">{receiveMagt.toFixed(2)}</span>
       </div>
 
-      {/* Button */}
       <button
         disabled={loading}
         onClick={buyWithTon}
         className="mt-4 h-10 w-full rounded-xl border border-white/10 bg-white/5
                    hover:bg-white/10 disabled:opacity-60"
       >
-        {buttonText}
+        {!addr ? "Connect wallet" : loading ? "Processing..." : "Buy MAGT"}
       </button>
 
-      {/* Status alerts */}
       {status === "confirming" && (
         <div className="mt-3 rounded-lg bg-yellow-500/10 px-3 py-2 text-xs text-yellow-300">
           ⏳ Confirming transaction…
