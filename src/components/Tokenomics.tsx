@@ -18,7 +18,9 @@ export function Tokenomics({ lang }: { lang: LangCode }) {
     <Card>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-lg font-semibold">{t(lang, "tokenomics_title")}</div>
+          <div className="text-lg font-semibold">
+            {t(lang, "tokenomics_title")}
+          </div>
 
           <div className="mt-1 text-sm text-zinc-400">
             {t(lang, "total_supply")}:{" "}
@@ -32,7 +34,8 @@ export function Tokenomics({ lang }: { lang: LangCode }) {
       <div className="mt-5 space-y-4">
         {rows.map((r) => {
           const base = t(lang, r.key);
-          const suffix = "suffixKey" in r && r.suffixKey ? ` ${t(lang, r.suffixKey)}` : "";
+          const suffix =
+            "suffixKey" in r && r.suffixKey ? ` ${t(lang, r.suffixKey)}` : "";
           const label = `${base}${suffix}`;
 
           return (

@@ -2,24 +2,14 @@
 import React from "react";
 import { Card } from "./Card";
 import { toNumberSafe } from "../lib/format";
-import { getRoundPriceTon } from "../lib/presale"; // ❗ єдине джерело
+import { getRoundPriceTon } from "../lib/presale";
 import type { LangCode } from "../lib/i18n";
 import { t } from "../lib/i18n";
 
-/**
- * Дозволяє вводити:
- *  - "0"
- *  - "0."
- *  - "0.0"
- *  - "0.0000"
- */
 function sanitizeDecimal(raw: string, maxDecimals: number): string {
   let v = raw.replace(",", ".");
-
-  // тільки цифри і крапка
   v = v.replace(/[^\d.]/g, "");
 
-  // тільки одна крапка
   const firstDot = v.indexOf(".");
   if (firstDot !== -1) {
     const before = v.slice(0, firstDot + 1);
@@ -27,12 +17,8 @@ function sanitizeDecimal(raw: string, maxDecimals: number): string {
     v = before + after;
   }
 
-  // обрізаємо decimals, але НЕ чіпаємо "0."
   const [i, f] = v.split(".");
-  if (f !== undefined) {
-    return `${i}.${f.slice(0, maxDecimals)}`;
-  }
-
+  if (f !== undefined) return `${i}.${f.slice(0, maxDecimals)}`;
   return v;
 }
 
@@ -43,15 +29,12 @@ export function TonToMagtCalculator({
   lang: LangCode;
   currentRound: number;
 }) {
-  // YOU PAY
   const [ton, setTon] = React.useState("50");
-
-  // Custom price (optional)
   const [customPrice, setCustomPrice] = React.useState("");
 
   const tonNum = Math.max(0, toNumberSafe(ton));
 
-  // ✅ Ціна раунду (використовується тільки для розрахунку, НЕ показуємо в UI)
+  // price only for calculation, NOT shown
   const roundPrice = getRoundPriceTon(currentRound);
 
   const customNum = toNumberSafe(customPrice);
@@ -62,20 +45,15 @@ export function TonToMagtCalculator({
 
   return (
     <Card>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-lg font-semibold">{t(lang, "calc__title")}</div>
-          <div className="mt-1 text-sm text-zinc-400">
-            {t(lang, "calc__subtitle")}
-          </div>
-        </div>
+      <div>
+        <div className="text-lg font-semibold">{t(lang, "calc__title")}</div>
+        <div className="mt-1 text-sm text-zinc-400">{t(lang, "calc__subtitle")}</div>
       </div>
 
-      {/* PAY / PRICE / RECEIVE */}
       <div className="mt-5 grid gap-4 lg:grid-cols-3">
         {/* YOU PAY */}
         <div className="rounded-2xl border border-white/10 bg-black/40 p-4 backdrop-blur-md">
-          <div className="text-xs text-zinc-400">You pay</div>
+          <div className="text-xs text-zinc-400">{t(lang, "calc__you_pay")}</div>
           <div className="mt-1 text-sm font-semibold">TON</div>
 
           <input
@@ -98,7 +76,7 @@ export function TonToMagtCalculator({
 
         {/* PRICE */}
         <div className="rounded-2xl border border-white/10 bg-black/40 p-4 backdrop-blur-md">
-          <div className="text-xs text-zinc-400">Custom price (optional)</div>
+          <div className="text-xs text-zinc-400">{t(lang, "calc__custom_price_optional")}</div>
           <div className="mt-1 text-sm font-semibold">TON / MAGT</div>
 
           <input
@@ -116,17 +94,17 @@ export function TonToMagtCalculator({
             onClick={() => setCustomPrice("")}
             className="mt-3 w-full rounded-xl border border-white/10 bg-white/5 py-2 text-xs font-semibold"
           >
-            Reset to default
+            {t(lang, "calc__reset_to_default")}
           </button>
 
           <div className="mt-2 text-[11px] text-zinc-500">
-            {useCustom ? "Using custom price" : "Using default price"}
+            {useCustom ? t(lang, "calc__using_custom_price") : t(lang, "calc__using_default_price")}
           </div>
         </div>
 
         {/* YOU RECEIVE */}
         <div className="rounded-2xl border border-white/10 bg-black/40 p-4 backdrop-blur-md">
-          <div className="text-xs text-zinc-400">You receive</div>
+          <div className="text-xs text-zinc-400">{t(lang, "calc__you_receive")}</div>
           <div className="mt-1 text-sm font-semibold">MAGT</div>
           <div className="mt-3 text-2xl font-semibold">{formatBig(magt)}</div>
         </div>
@@ -155,7 +133,5 @@ function QuickBtn({
 
 function formatBig(n: number) {
   if (!Number.isFinite(n)) return "0";
-  return new Intl.NumberFormat(undefined, {
-    maximumFractionDigits: 2,
-  }).format(n);
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(n);
 }

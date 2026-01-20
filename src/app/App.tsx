@@ -119,34 +119,30 @@ export default function App() {
     inFlightRef.current = true;
 
     try {
-      const data = await getPresaleSnapshot({
+      // ✅ FIX: getPresaleSnapshot expects an object, not boolean
+      const snap = await getPresaleSnapshot({
         presaleAddress: PRESALE_CONTRACT,
         walletAddress: addr || undefined,
         force,
       });
 
-      setSnapshot(data);
+      setSnapshot(snap);
       setDataError("");
     } catch (e: any) {
-      const msg = String(e?.message ?? e ?? "");
-      console.error("[PresaleSnapshot ERROR]", e);
-      setDataError(msg || "Failed to load on-chain data");
+      console.error("[SNAPSHOT ERROR]", e);
+      setDataError(String(e?.message ?? e));
     } finally {
       inFlightRef.current = false;
     }
   };
 
   useEffect(() => {
-    reloadOnchain(false);
+    reloadOnchain(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addr, refreshTick]);
 
   useEffect(() => {
-    const id = window.setInterval(() => {
-      if (document.hidden) return;
-      setRefreshTick((x) => x + 1);
-    }, 120_000);
-
+    const id = window.setInterval(() => setRefreshTick((x) => x + 1), 12_000);
     return () => window.clearInterval(id);
   }, []);
 
@@ -219,11 +215,11 @@ export default function App() {
                          text-sm font-semibold hover:bg-white/10 disabled:opacity-60"
               title={!addr ? t(lang, "presale_widget__9") : undefined}
             >
-              Claim
+              {t(lang, "app__claim")}
             </button>
 
             <div className="mt-2 text-xs text-zinc-500">
-              Claim sends ~0.35 TON gas (testnet/mainnet depends on network).
+              {t(lang, "app__claim_gas_note")}
             </div>
           </Card>
 
@@ -239,7 +235,6 @@ export default function App() {
           </Card>
         </div>
 
-        {/* ✅ Presale Progress full-width */}
         <div className="mt-10">
           <PresaleProgress
             lang={lang}
@@ -250,7 +245,7 @@ export default function App() {
 
           {dataError && (
             <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-              On-chain data error: {dataError}
+              {t(lang, "app__onchain_error_prefix")} {dataError}
             </div>
           )}
         </div>
@@ -259,27 +254,34 @@ export default function App() {
           <TonToMagtCalculator lang={lang} currentRound={currentRound} />
         </div>
 
-        <section id="buy" className="mt-10 scroll-mt-28">
+        {/* ✅ FIX: PresaleWidget НЕ має currentRound в пропсах */}
+        <div className="mt-10">
           <PresaleWidget lang={lang} onTxSent={forceRefreshAfterTx} />
-        </section>
+        </div>
 
-        <section className="mt-14">
+        <div className="mt-10">
           <ProjectsSection lang={lang} raisedUsd={raisedUsd} />
-        </section>
+        </div>
 
-        <section className="mt-14 grid gap-10">
+        <div className="mt-10">
           <TrustSection lang={lang} />
+        </div>
+
+        <div className="mt-10">
           <Tokenomics lang={lang} />
+        </div>
+
+        <div className="mt-10">
           <Roadmap lang={lang} />
-        </section>
+        </div>
 
-        <section id="faq" className="mt-14 scroll-mt-28">
+        <div className="mt-10">
           <FAQ lang={lang} />
-        </section>
+        </div>
 
-        <section id="social" className="mt-14 scroll-mt-28">
+        <div className="mt-10">
           <SiteFooter lang={lang} />
-        </section>
+        </div>
       </main>
     </div>
   );

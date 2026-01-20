@@ -4,7 +4,7 @@ import type { LangCode } from "../lib/i18n";
 import { t } from "../lib/i18n";
 
 const MILESTONES = [
-  { label: "0$", value: 0 },
+  { label: "10,000$", value: 10_000 },
   { label: "500,000$", value: 500_000 },
   { label: "5,000,000$", value: 5_000_000 },
   { label: "15,000,000$", value: 15_000_000 },

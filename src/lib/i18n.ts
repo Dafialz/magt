@@ -45,12 +45,14 @@ export const FLAG_ICON: Record<LangCode, string> = {
 const STORAGE_KEY = "magt_lang";
 
 export function getSavedLang(): LangCode {
-  const v = localStorage.getItem(STORAGE_KEY) as LangCode | null;
-  return (LANGS as readonly any[]).some((x) => x.code === v) ? (v as LangCode) : "en";
+  const raw = (localStorage.getItem(STORAGE_KEY) ?? "").toLowerCase();
+  const v = raw as LangCode;
+  return (LANGS as readonly any[]).some((x) => x.code === v) ? v : "en";
 }
 
 export function saveLang(code: LangCode) {
-  localStorage.setItem(STORAGE_KEY, code);
+  // store normalized lowercase code (prevents "RU"/"EN" bugs)
+  localStorage.setItem(STORAGE_KEY, String(code).toLowerCase());
 }
 
 /* ====== DICTIONARY ====== */
@@ -2331,6 +2333,7 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "trust__5": "Fast & cheap TON",
     "trust__6": "No manual intervention",
     "tokenomics__1": "Tokenomics",
+    "tokenomics__team_locked": "Team (locked)",
     "tokenomics__2": "Total supply",
     "tokenomics__3": "Presale",
     "tokenomics__4": "Liquidity",
@@ -2390,6 +2393,11 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "roadmap__q2": "DEX Listing + Liquidity",
     "roadmap__q3": "Product launch",
     "roadmap__q4": "Ecosystem expansion",
+    "app__claim_gas_note": "Claim sends ~0.35 TON gas (testnet/mainnet depends on network).",
+    "app__claim": "Claim",
+    "app__your_magt": "Your MAGT",
+    "app__referral_magt": "Referral MAGT",
+    "app__onchain_error_prefix": "On-chain read error:",
   },
   "uk": {
     "app__1": "MAGIC TIME",
@@ -2473,6 +2481,7 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "trust__5": "Швидкий і дешевий TON",
     "trust__6": "Без ручного втручання",
     "tokenomics__1": "Токеноміка",
+    "tokenomics__team_locked": "Команда (заблоковано)",
     "tokenomics__2": "Загальна пропозиція",
     "tokenomics__3": "Пресейл",
     "tokenomics__4": "Ліквідність",
@@ -2532,6 +2541,11 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "roadmap__q2": "DEX Listing + Liquidity",
     "roadmap__q3": "Product launch",
     "roadmap__q4": "Ecosystem expansion",
+    "app__claim_gas_note": "Claim відправляє ~0.35 TON на gas (testnet/mainnet залежить від мережі).",
+    "app__claim": "Claim",
+    "app__your_magt": "Your MAGT",
+    "app__referral_magt": "Реферальний MAGT",
+    "app__onchain_error_prefix": "On-chain read error:",
   },
   "ru": {
     "app__1": "MAGIC TIME",
@@ -2615,6 +2629,7 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "trust__5": "Быстрый и дешёвый TON",
     "trust__6": "Без ручного вмешательства",
     "tokenomics__1": "Токеномика",
+    "tokenomics__team_locked": "Команда (заблокировано)",
     "tokenomics__2": "Общее предложение",
     "tokenomics__3": "Пресейл",
     "tokenomics__4": "Ликвидность",
@@ -2674,6 +2689,11 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "roadmap__q2": "DEX Listing + Liquidity",
     "roadmap__q3": "Product launch",
     "roadmap__q4": "Ecosystem expansion",
+    "app__claim_gas_note": "Claim отправляет ~0.35 TON на газ (testnet/mainnet зависит от сети).",
+    "app__claim": "Claim",
+    "app__your_magt": "Your MAGT",
+    "app__referral_magt": "Реферальный MAGT",
+    "app__onchain_error_prefix": "On-chain read error:",
   },
   "es": {
     "app__1": "MAGIC TIME",
@@ -2757,6 +2777,7 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "trust__5": "TON rápido y barato",
     "trust__6": "Sin intervención manual",
     "tokenomics__1": "Tokenomics",
+    "tokenomics__team_locked": "Equipo (bloqueado)",
     "tokenomics__2": "Suministro total",
     "tokenomics__3": "Presale",
     "tokenomics__4": "Liquidez",
@@ -2816,6 +2837,11 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "roadmap__q2": "DEX Listing + Liquidity",
     "roadmap__q3": "Product launch",
     "roadmap__q4": "Ecosystem expansion",
+    "app__claim_gas_note": "Claim envía ~0.35 TON de gas (testnet/mainnet depende de la red).",
+    "app__claim": "Claim",
+    "app__your_magt": "Your MAGT",
+    "app__referral_magt": "MAGT por referidos",
+    "app__onchain_error_prefix": "On-chain read error:",
   },
   "fr": {
     "app__1": "MAGIC TIME",
@@ -2899,6 +2925,7 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "trust__5": "TON rapide et peu coûteux",
     "trust__6": "Aucune intervention manuelle",
     "tokenomics__1": "Tokenomics",
+    "tokenomics__team_locked": "Équipe (verrouillée)",
     "tokenomics__2": "Offre totale",
     "tokenomics__3": "Presale",
     "tokenomics__4": "Liquidité",
@@ -2958,6 +2985,11 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "roadmap__q2": "DEX Listing + Liquidity",
     "roadmap__q3": "Product launch",
     "roadmap__q4": "Ecosystem expansion",
+    "app__claim_gas_note": "Claim envoie ~0.35 TON de gas (testnet/mainnet dépend du réseau).",
+    "app__claim": "Claim",
+    "app__your_magt": "Your MAGT",
+    "app__referral_magt": "MAGT de parrainage",
+    "app__onchain_error_prefix": "On-chain read error:",
   },
   "pt": {
     "app__1": "MAGIC TIME",
@@ -3041,6 +3073,7 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "trust__5": "TON rápido e barato",
     "trust__6": "Sem intervenção manual",
     "tokenomics__1": "Tokenomics",
+    "tokenomics__team_locked": "Equipe (bloqueada)",
     "tokenomics__2": "Oferta total",
     "tokenomics__3": "Presale",
     "tokenomics__4": "Liquidez",
@@ -3100,6 +3133,11 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "roadmap__q2": "DEX Listing + Liquidity",
     "roadmap__q3": "Product launch",
     "roadmap__q4": "Ecosystem expansion",
+    "app__claim_gas_note": "Claim envia ~0.35 TON de gas (testnet/mainnet depende da rede).",
+    "app__claim": "Claim",
+    "app__your_magt": "Your MAGT",
+    "app__referral_magt": "MAGT de referência",
+    "app__onchain_error_prefix": "On-chain read error:",
   },
   "cn": {
     "app__1": "MAGIC TIME",
@@ -3183,6 +3221,7 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "trust__5": "快速且低费用的 TON",
     "trust__6": "无人工干预",
     "tokenomics__1": "代币经济",
+    "tokenomics__team_locked": "团队（锁定）",
     "tokenomics__2": "总供应量",
     "tokenomics__3": "Presale",
     "tokenomics__4": "流动性",
@@ -3242,6 +3281,11 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "roadmap__q2": "DEX Listing + Liquidity",
     "roadmap__q3": "Product launch",
     "roadmap__q4": "Ecosystem expansion",
+    "app__claim_gas_note": "Claim 会发送约 0.35 TON 作为 gas（testnet/mainnet 取决于网络）。",
+    "app__claim": "Claim",
+    "app__your_magt": "Your MAGT",
+    "app__referral_magt": "推荐 MAGT",
+    "app__onchain_error_prefix": "On-chain read error:",
   },
   "in": {
     "app__1": "MAGIC TIME",
@@ -3325,6 +3369,7 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "trust__5": "तेज़ और सस्ता TON",
     "trust__6": "कोई मैनुअल हस्तक्षेप नहीं",
     "tokenomics__1": "Tokenomics",
+    "tokenomics__team_locked": "Team (locked)",
     "tokenomics__2": "कुल आपूर्ति",
     "tokenomics__3": "Presale",
     "tokenomics__4": "लिक्विडिटी",
@@ -3384,6 +3429,11 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "roadmap__q2": "DEX Listing + Liquidity",
     "roadmap__q3": "Product launch",
     "roadmap__q4": "Ecosystem expansion",
+    "app__claim_gas_note": "Claim ~0.35 TON gas भेजता है (testnet/mainnet नेटवर्क पर निर्भर).",
+    "app__claim": "Claim",
+    "app__your_magt": "Your MAGT",
+    "app__referral_magt": "रेफरल MAGT",
+    "app__onchain_error_prefix": "On-chain read error:",
   },
   "id": {
     "app__1": "MAGIC TIME",
@@ -3467,6 +3517,7 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "trust__5": "TON cepat & murah",
     "trust__6": "Tanpa intervensi manual",
     "tokenomics__1": "Tokenomics",
+    "tokenomics__team_locked": "Tim (terkunci)",
     "tokenomics__2": "Total suplai",
     "tokenomics__3": "Presale",
     "tokenomics__4": "Likuiditas",
@@ -3526,6 +3577,11 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "roadmap__q2": "DEX Listing + Liquidity",
     "roadmap__q3": "Product launch",
     "roadmap__q4": "Ecosystem expansion",
+    "app__claim_gas_note": "Claim mengirim ~0.35 TON gas (testnet/mainnet tergantung jaringan).",
+    "app__claim": "Claim",
+    "app__your_magt": "Your MAGT",
+    "app__referral_magt": "MAGT Referal",
+    "app__onchain_error_prefix": "On-chain read error:",
   },
   "sa": {
     "app__1": "MAGIC TIME",
@@ -3609,6 +3665,7 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "trust__5": "TON سريع ومنخفض التكلفة",
     "trust__6": "بدون تدخل يدوي",
     "tokenomics__1": "اقتصاديات التوكن",
+    "tokenomics__team_locked": "الفريق (مقفل)",
     "tokenomics__2": "إجمالي المعروض",
     "tokenomics__3": "Presale",
     "tokenomics__4": "السيولة",
@@ -3668,6 +3725,11 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "roadmap__q2": "DEX Listing + Liquidity",
     "roadmap__q3": "Product launch",
     "roadmap__q4": "Ecosystem expansion",
+    "app__claim_gas_note": "Claim يرسل حوالي 0.35 TON كـ gas (testnet/mainnet يعتمد على الشبكة).",
+    "app__claim": "Claim",
+    "app__your_magt": "Your MAGT",
+    "app__referral_magt": "MAGT الإحالات",
+    "app__onchain_error_prefix": "On-chain read error:",
   },
   "bd": {
     "app__1": "MAGIC TIME",
@@ -3751,6 +3813,7 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "trust__5": "দ্রুত ও সস্তা TON",
     "trust__6": "কোনো ম্যানুয়াল হস্তক্ষেপ নেই",
     "tokenomics__1": "টোকেনোমিক্স",
+    "tokenomics__team_locked": "টিম (লকড)",
     "tokenomics__2": "মোট সরবরাহ",
     "tokenomics__3": "Presale",
     "tokenomics__4": "লিকুইডিটি",
@@ -3810,9 +3873,64 @@ export const UI_TEXT: Record<LangCode, Record<string, string>> = {
     "roadmap__q2": "DEX Listing + Liquidity",
     "roadmap__q3": "Product launch",
     "roadmap__q4": "Ecosystem expansion",
+    "app__claim_gas_note": "Claim ~0.35 TON gas পাঠায় (testnet/mainnet নেটওয়ার্কের উপর নির্ভর করে).",
+    "app__claim": "Claim",
+    "app__your_magt": "Your MAGT",
+    "app__referral_magt": "রেফারাল MAGT",
+    "app__onchain_error_prefix": "On-chain read error:",
   },
 };
 
 export function t(lang: LangCode, key: string) {
-  return UI_TEXT[lang]?.[key] ?? DICT[lang]?.[key] ?? UI_TEXT.en?.[key] ?? DICT.en[key] ?? key;
+  // ------------------------------------------------------------------
+  // ✅ Hardening / aliases
+  // - Some components historically used different key names.
+  // - Some builds accidentally persisted lang as upper-case ("RU"),
+  //   which would break dictionary lookups.
+  // ------------------------------------------------------------------
+
+  const normLang = ((lang as unknown as string) || "en").toLowerCase() as LangCode;
+
+  // Key aliases (keeps old components working without touching UI code)
+  const ALIAS: Record<string, string> = {
+    // Trust/Roadmap titles (old keys)
+    trust_title: "trust__1",
+    tokenomics_title: "tokenomics__1",
+    roadmap_title: "roadmap_title", // already correct
+    faq_title: "faq_title", // DICT contains it
+
+    // Calculator (old/new naming)
+    calc__title: "calculator__1",
+    calc__subtitle: "calculator__4", // "Current round" (closest existing); many UIs show a subtitle line
+
+    // Projects section (newer naming)
+    projects__title: "projects__1",
+    projects__subtitle: "projects__2",
+    projects__raised: "projects__3",
+
+    // Tokenomics label that appeared as a single combined key
+    team_tokenomics_locked_suffix: "tokenomics__team_locked",
+    trust__title: "trust__1",
+    roadmap__title: "roadmap_title",
+    tokenomics__locked_suffix: "tokenomics__team_locked",
+    app__your_magt: "app__8",
+    app__referral_magt: "app__20",
+    app__onchain_error_prefix: "app__7",
+    app__claim: "app__3",
+  };
+
+  const k = ALIAS[key] ?? key;
+
+  return (
+    UI_TEXT[normLang]?.[k] ??
+    DICT[normLang]?.[k] ??
+    UI_TEXT.en?.[k] ??
+    DICT.en?.[k] ??
+    // if alias didn't exist but original did
+    UI_TEXT[normLang]?.[key] ??
+    DICT[normLang]?.[key] ??
+    UI_TEXT.en?.[key] ??
+    DICT.en?.[key] ??
+    key
+  );
 }

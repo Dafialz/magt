@@ -6,31 +6,13 @@ import { t } from "../lib/i18n";
 export function TrustSection({ lang }: { lang: LangCode }) {
   return (
     <Card>
-      <div className="text-lg font-semibold">
-        {t(lang, "trust__title")}
-      </div>
+      <div className="text-lg font-semibold">{t(lang, "trust__title")}</div>
 
       <div className="mt-4 grid gap-4 md:grid-cols-2">
-        <TrustItem
-          lang={lang}
-          title="trust__1_title"
-          text="trust__1_text"
-        />
-        <TrustItem
-          lang={lang}
-          title="trust__2_title"
-          text="trust__2_text"
-        />
-        <TrustItem
-          lang={lang}
-          title="trust__3_title"
-          text="trust__3_text"
-        />
-        <TrustItem
-          lang={lang}
-          title="trust__4_title"
-          text="trust__4_text"
-        />
+        <TrustItem lang={lang} title="trust__1_title" text="trust__1_text" />
+        <TrustItem lang={lang} title="trust__2_title" text="trust__2_text" />
+        <TrustItem lang={lang} title="trust__3_title" text="trust__3_text" />
+        <TrustItem lang={lang} title="trust__4_title" text="trust__4_text" />
       </div>
     </Card>
   );

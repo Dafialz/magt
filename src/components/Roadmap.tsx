@@ -13,9 +13,7 @@ export function Roadmap({ lang }: { lang: LangCode }) {
 
   return (
     <Card>
-      <div className="text-lg font-semibold">
-        {t(lang, "roadmap__title")}
-      </div>
+      <div className="text-lg font-semibold">{t(lang, "roadmap__title")}</div>
 
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         {steps.map((s) => (
