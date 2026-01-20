@@ -119,7 +119,6 @@ export default function App() {
     inFlightRef.current = true;
 
     try {
-      // ✅ FIX: getPresaleSnapshot expects an object, not boolean
       const snap = await getPresaleSnapshot({
         presaleAddress: PRESALE_CONTRACT,
         walletAddress: addr || undefined,
@@ -201,7 +200,26 @@ export default function App() {
       <main className="mx-auto max-w-6xl px-4 py-10">
         <div className="h-[260px] sm:h-[300px] md:h-[340px] lg:h-[380px]" />
 
-        <div className="grid gap-6 md:grid-cols-2">
+        {/* ✅ 3 SMALL INFO CARDS (ABOVE MAIN 2 CARDS) */}
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Card className="p-4">
+            <div className="text-xs text-zinc-400">{t(lang, "app__15")}</div>
+            <div className="mt-1 text-sm font-semibold">TON</div>
+          </Card>
+
+          <Card className="p-4">
+            <div className="text-xs text-zinc-400">REF BONUS +5%</div>
+            <div className="mt-1 text-sm font-semibold">MAGT</div>
+          </Card>
+
+          <Card className="p-4">
+            <div className="text-xs text-zinc-400">{t(lang, "app__17")}</div>
+            <div className="mt-1 text-sm font-semibold">MAGT</div>
+          </Card>
+        </div>
+
+        {/* MAIN 2 CARDS */}
+        <div className="mt-6 grid gap-6 md:grid-cols-2">
           <Card>
             <div className="text-sm text-zinc-400">{t(lang, "app__your_magt")}</div>
             <div className="mt-2 text-3xl font-semibold">
@@ -254,7 +272,6 @@ export default function App() {
           <TonToMagtCalculator lang={lang} currentRound={currentRound} />
         </div>
 
-        {/* ✅ FIX: PresaleWidget НЕ має currentRound в пропсах */}
         <div className="mt-10">
           <PresaleWidget lang={lang} onTxSent={forceRefreshAfterTx} />
         </div>
