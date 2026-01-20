@@ -1,4 +1,3 @@
-// src/components/PresaleWidget.tsx
 import { useMemo, useState } from "react";
 import { useTonAddress, useTonConnectUI } from "@tonconnect/ui-react";
 import { beginCell, Address } from "@ton/core";
@@ -19,21 +18,10 @@ function bytesToBase64(bytes: Uint8Array) {
 }
 
 /**
- * ✅ Contract expects:
- * message(0x42555901) Buy { ref: Address?; }
- *
- * ref = Address? is encoded as MaybeAddress in TON:
- * - addr_none (00) => null
- * - addr_std  (10) => internal address
- *
- * ✅ Therefore: DO NOT add an extra boolean bit.
- *
- * Якщо ref НЕ заданий — краще відправити пустий body (receive()),
- * щоб контракт викликав processBuy(null).
+ * Buy opcode
  */
 function buildBuyPayloadBase64(ref: Address) {
   const BUY_OPCODE = 0x42555901;
-
   const cell = beginCell().storeUint(BUY_OPCODE, 32).storeAddress(ref).endCell();
   return bytesToBase64(cell.toBoc({ idx: false }));
 }
@@ -46,11 +34,13 @@ function getRefOrNull(self: Address): Address | null {
     const ref = Address.parse(refParam);
     if (ref.equals(self)) return null;
 
-    return ref; // валідний реферал
+    return ref;
   } catch {
     return null;
   }
 }
+
+type TxStatus = "idle" | "confirming" | "sent" | "error";
 
 export function PresaleWidget({
   lang,
@@ -64,27 +54,32 @@ export function PresaleWidget({
 
   const [tonAmount, setTonAmount] = useState("1");
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState("");
+  const [status, setStatus] = useState<TxStatus>("idle");
+  const [errorMsg, setErrorMsg] = useState("");
 
   const payload = useMemo(() => {
     if (!addr) return undefined;
     const self = Address.parse(addr);
     const ref = getRefOrNull(self);
-
-    // якщо ref нема — payload не треба (спрацює receive())
     if (!ref) return undefined;
-
     return buildBuyPayloadBase64(ref);
   }, [addr]);
 
-  async function buyWithTon() {
-    if (!addr) return setMsg(t(lang, "presale_widget__10"));
+  const ton = toNumberSafe(tonAmount);
+  const receiveMagt = ton > 0 ? ton : 0; // ⬅️ легко замінити формулу
 
-    const ton = toNumberSafe(tonAmount);
-    if (ton <= 0) return setMsg(t(lang, "presale_widget__11"));
+  async function buyWithTon() {
+    if (!addr) return;
+
+    if (ton < 1) {
+      setStatus("error");
+      setErrorMsg("Minimum purchase is 1 TON");
+      return;
+    }
 
     setLoading(true);
-    setMsg("");
+    setStatus("confirming");
+    setErrorMsg("");
 
     try {
       await tonConnectUI.sendTransaction({
@@ -98,37 +93,81 @@ export function PresaleWidget({
         ],
       });
 
-      setMsg(t(lang, "presale_widget__13"));
+      setStatus("sent");
       onTxSent?.();
     } catch (e: any) {
-      setMsg(e?.message ?? t(lang, "presale_widget__14"));
+      setStatus("error");
+      setErrorMsg(e?.message ?? "Transaction failed");
     } finally {
       setLoading(false);
     }
   }
 
-  const canBuy = !!addr && !loading;
+  const buttonText = !addr
+    ? "Connect wallet"
+    : loading
+    ? "Processing..."
+    : "Buy MAGT";
 
   return (
     <Card>
-      <div className="text-lg font-semibold">{t(lang, "presale_widget__1")}</div>
+      {/* Header */}
+      <div className="text-lg font-semibold">Buy MAGT</div>
+      <div className="text-xs text-zinc-400">
+        Pay in TON · Instant on-chain
+      </div>
 
-      <input
-        value={tonAmount}
-        onChange={(e) => setTonAmount(e.target.value)}
-        className="mt-3 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2"
-        placeholder="1"
-      />
+      {/* Input */}
+      <div className="mt-4">
+        <div className="mb-1 text-xs text-zinc-400">You pay (TON)</div>
+        <input
+          value={tonAmount}
+          onChange={(e) => setTonAmount(e.target.value)}
+          className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2"
+          placeholder="1"
+        />
+      </div>
 
+      {/* Receive */}
+      <div className="mt-2 text-sm text-zinc-300">
+        You receive (MAGT):{" "}
+        <span className="font-semibold">{receiveMagt.toFixed(3)}</span>
+      </div>
+
+      {/* Button */}
       <button
-        disabled={!canBuy}
+        disabled={loading}
         onClick={buyWithTon}
-        className="mt-4 h-10 w-full rounded-xl border border-white/10 bg-white/5 disabled:opacity-60"
+        className="mt-4 h-10 w-full rounded-xl border border-white/10 bg-white/5
+                   hover:bg-white/10 disabled:opacity-60"
       >
-        {loading ? "Processing..." : "Buy MAGT"}
+        {buttonText}
       </button>
 
-      {msg && <div className="mt-2 text-xs text-zinc-400">{msg}</div>}
+      {/* Status alerts */}
+      {status === "confirming" && (
+        <div className="mt-3 rounded-lg bg-yellow-500/10 px-3 py-2 text-xs text-yellow-300">
+          ⏳ Confirming transaction…
+        </div>
+      )}
+
+      {status === "sent" && (
+        <div className="mt-3 rounded-lg bg-green-500/10 px-3 py-2 text-xs text-green-300">
+          ✅ Transaction sent
+        </div>
+      )}
+
+      {status === "error" && (
+        <div className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300">
+          ❌ Failed: {errorMsg}{" "}
+          <button
+            onClick={() => setStatus("idle")}
+            className="underline ml-1"
+          >
+            Try again
+          </button>
+        </div>
+      )}
     </Card>
   );
 }
