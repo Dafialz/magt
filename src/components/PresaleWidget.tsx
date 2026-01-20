@@ -6,7 +6,6 @@ import { toNumberSafe } from "../lib/format";
 import { safeValidUntil, toNanoTon } from "../lib/ton";
 import { PRESALE_CONTRACT } from "../lib/config";
 import type { LangCode } from "../lib/i18n";
-import { t } from "../lib/i18n";
 
 function bytesToBase64(bytes: Uint8Array) {
   let binary = "";
@@ -49,6 +48,9 @@ export function PresaleWidget({
   lang: LangCode;
   onTxSent?: () => void;
 }) {
+  // ✅ keep prop for compatibility with App.tsx, but mark as used
+  void lang;
+
   const addr = useTonAddress();
   const [tonConnectUI] = useTonConnectUI();
 
@@ -113,9 +115,7 @@ export function PresaleWidget({
     <Card>
       {/* Header */}
       <div className="text-lg font-semibold">Buy MAGT</div>
-      <div className="text-xs text-zinc-400">
-        Pay in TON · Instant on-chain
-      </div>
+      <div className="text-xs text-zinc-400">Pay in TON · Instant on-chain</div>
 
       {/* Input */}
       <div className="mt-4">
@@ -160,10 +160,7 @@ export function PresaleWidget({
       {status === "error" && (
         <div className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300">
           ❌ Failed: {errorMsg}{" "}
-          <button
-            onClick={() => setStatus("idle")}
-            className="underline ml-1"
-          >
+          <button onClick={() => setStatus("idle")} className="ml-1 underline">
             Try again
           </button>
         </div>
