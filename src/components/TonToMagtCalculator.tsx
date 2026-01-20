@@ -1,4 +1,3 @@
-// src/components/TonToMagtCalculator.tsx
 import React from "react";
 import { Card } from "./Card";
 import { toNumberSafe } from "../lib/format";
@@ -30,17 +29,11 @@ export function TonToMagtCalculator({
   currentRound: number;
 }) {
   const [ton, setTon] = React.useState("50");
-  const [customPrice, setCustomPrice] = React.useState("");
 
   const tonNum = Math.max(0, toNumberSafe(ton));
 
-  // price only for calculation, NOT shown
-  const roundPrice = getRoundPriceTon(currentRound);
-
-  const customNum = toNumberSafe(customPrice);
-  const useCustom = customPrice.trim() !== "" && customNum > 0;
-  const price = useCustom ? customNum : roundPrice;
-
+  // default round price (no custom price anymore)
+  const price = getRoundPriceTon(currentRound);
   const magt = price > 0 ? tonNum / price : 0;
 
   return (
@@ -76,29 +69,11 @@ export function TonToMagtCalculator({
 
         {/* PRICE */}
         <div className="rounded-2xl border border-white/10 bg-black/40 p-4 backdrop-blur-md">
-          <div className="text-xs text-zinc-400">{t(lang, "calc__custom_price_optional")}</div>
-          <div className="mt-1 text-sm font-semibold">TON / MAGT</div>
+          <div className="text-xs text-zinc-400">Price</div>
+          <div className="mt-1 text-sm font-semibold">price MAGT</div>
 
-          <input
-            value={customPrice}
-            onChange={(e) => setCustomPrice(sanitizeDecimal(e.target.value, 6))}
-            className="mt-3 w-full rounded-xl border border-white/10 bg-black/35 px-3 py-2 outline-none"
-            placeholder="0.000000"
-            inputMode="decimal"
-            autoComplete="off"
-            name="magt_custom_price"
-          />
-
-          <button
-            type="button"
-            onClick={() => setCustomPrice("")}
-            className="mt-3 w-full rounded-xl border border-white/10 bg-white/5 py-2 text-xs font-semibold"
-          >
-            {t(lang, "calc__reset_to_default")}
-          </button>
-
-          <div className="mt-2 text-[11px] text-zinc-500">
-            {useCustom ? t(lang, "calc__using_custom_price") : t(lang, "calc__using_default_price")}
+          <div className="mt-3 text-xl font-semibold">
+            {price.toFixed(6)}
           </div>
         </div>
 
