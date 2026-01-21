@@ -105,7 +105,7 @@ export function ProjectsSection({
           <LockedProjectCard
             lang={lang}
             title={t(lang, "projects__tap_title")}
-            subtitle={`Unlocks at $${formatMoney(PROJECT_1_UNLOCK_USD)}`}
+            subtitle={t(lang, "projects__unlock_at").replace("{amount}", `$${formatMoney(PROJECT_1_UNLOCK_USD)}`)}
           />
         )}
 
