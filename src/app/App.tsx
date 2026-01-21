@@ -236,10 +236,7 @@ export default function App() {
               {t(lang, "app__claim")}
             </button>
 
-            <div className="mt-2 text-xs text-zinc-500">
-              {t(lang, "app__claim_gas_note")}
-            </div>
-          </Card>
+                      </Card>
 
           <Card>
             <div className="text-sm text-zinc-400">{t(lang, "app__referral_magt")}</div>
