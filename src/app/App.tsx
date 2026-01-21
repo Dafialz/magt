@@ -272,14 +272,14 @@ export default function App() {
           <TonToMagtCalculator lang={lang} currentRound={currentRound} />
         </div>
 
-        <div className="mt-10">
+        <section id="buy" className="mt-10 scroll-mt-24">
           {/* ✅ FIX: pass currentRound so Buy MAGT "You receive" uses round price */}
           <PresaleWidget
             lang={lang}
             currentRound={currentRound}
             onTxSent={forceRefreshAfterTx}
           />
-        </div>
+        </section>
 
         <div className="mt-10">
           <ProjectsSection lang={lang} raisedUsd={raisedUsd} />
@@ -297,13 +297,13 @@ export default function App() {
           <Roadmap lang={lang} />
         </div>
 
-        <div className="mt-10">
+        <section id="faq" className="mt-10 scroll-mt-24">
           <FAQ lang={lang} />
-        </div>
+        </section>
 
-        <div className="mt-10">
+        <section id="social" className="mt-10 scroll-mt-24">
           <SiteFooter lang={lang} />
-        </div>
+        </section>
       </main>
     </div>
   );
