@@ -40,7 +40,7 @@ export const TONAPI_BASE = IS_TESTNET ? "https://testnet.tonapi.io" : "https://t
  * Without API key Toncenter is rate-limited. You can set:
  * VITE_TONCENTER_API_KEY or VITE_TONCENTER_KEY
  */
-export const TONCENTER_JSONRPC = IS_TESTNET
+const TONCENTER_JSONRPC_BASE = IS_TESTNET
   ? "https://testnet.toncenter.com/api/v2/jsonRPC"
   : "https://toncenter.com/api/v2/jsonRPC";
 
@@ -48,6 +48,16 @@ export const TONCENTER_API_KEY =
   ((import.meta as any)?.env?.VITE_TONCENTER_API_KEY as string | undefined) ||
   ((import.meta as any)?.env?.VITE_TONCENTER_KEY as string | undefined) ||
   undefined;
+
+/**
+ * ✅ Final JSON-RPC endpoint:
+ * - adds ?api_key=... when key exists
+ * - stays base URL when key is missing
+ */
+export const TONCENTER_JSONRPC =
+  TONCENTER_API_KEY && TONCENTER_API_KEY.trim().length > 0
+    ? `${TONCENTER_JSONRPC_BASE}?api_key=${encodeURIComponent(TONCENTER_API_KEY.trim())}`
+    : TONCENTER_JSONRPC_BASE;
 
 /**
  * ✅ Contracts (addresses)
