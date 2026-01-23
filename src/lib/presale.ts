@@ -266,8 +266,9 @@ async function toncenterRpc<T>(method: string, params: any): Promise<T> {
 
     let r: Response;
     try {
-      // ✅ IMPORTANT: avoid X-API-Key header in browser (CORS preflight).
-      // API key is appended to TONCENTER_JSONRPC as ?api_key=... in config.ts.
+      // ✅ Browser-safe JSON-RPC call.
+      // If you set VITE_TONCENTER_API_KEY on Netlify, config.ts will append
+      // `?api_key=...` to TONCENTER_JSONRPC.
       r = await fetch(TONCENTER_JSONRPC, {
         method: "POST",
         headers: {
@@ -410,6 +411,25 @@ function calcRoundFromSold(soldTotalNano: bigint): {
   return { currentRound: last, soldInRoundNano: lastCapNano };
 }
 
+async function fetchBaseViaTonApiFallback(presaleAddress: string): Promise<BaseData> {
+  const totalRaisedNano = await tonApiGetAccountBalanceNano(presaleAddress);
+  const remainingNano = await tonApiGetWalletJettonBalanceNano(
+    presaleAddress,
+    JETTON_MASTER
+  );
+
+  const soldTotalNano =
+    TOTAL_PRESALE_NANO > remainingNano ? TOTAL_PRESALE_NANO - remainingNano : 0n;
+  const { currentRound, soldInRoundNano } = calcRoundFromSold(soldTotalNano);
+
+  return {
+    currentRound,
+    soldTotalNano,
+    soldInRoundNano,
+    totalRaisedNano,
+  };
+}
+
 /* ===== anti-429 cache / coalescing ===== */
 
 type BaseEntry = {
@@ -507,7 +527,21 @@ export async function getPresaleSnapshot(args?: {
       if (baseEntry.data) {
         basePromise = Promise.resolve(baseEntry.data);
       } else {
-        throw new Error("PROVIDERS_COOLDOWN_NO_CACHE");
+        // We are in cooldown (likely due to 429). If we have no cached snapshot yet,
+        // try the TonAPI fallback once instead of hard-failing the UI.
+        basePromise = (async () => {
+          const base = await fetchBaseViaTonApiFallback(presaleAddress);
+
+          if (!isSaneBaseUpdate(BASE_CACHE.get(bKey)?.data, base)) {
+            const prev = BASE_CACHE.get(bKey);
+            if (prev?.data) return prev.data;
+          }
+
+          BASE_CACHE.set(bKey, { ts: Date.now(), data: base });
+          return base;
+        })();
+
+        BASE_CACHE.set(bKey, { ...baseEntry, inFlight: basePromise });
       }
     } else {
       basePromise = (async () => {
@@ -561,28 +595,22 @@ export async function getPresaleSnapshot(args?: {
               cooldownUntil,
             });
             if (prev?.data) return prev.data;
-            throw new Error("TONCENTER_RATE_LIMIT_NO_CACHE");
+
+            // No cache yet -> immediately try TonAPI fallback
+            const base = await fetchBaseViaTonApiFallback(presaleAddress);
+
+            if (!isSaneBaseUpdate(BASE_CACHE.get(bKey)?.data, base)) {
+              const p = BASE_CACHE.get(bKey);
+              if (p?.data) return p.data;
+            }
+
+            BASE_CACHE.set(bKey, { ts: Date.now(), data: base, cooldownUntil });
+            return base;
           }
 
           // last fallback: TonAPI accounts/jettons (may be blocked; may be less accurate)
           try {
-            const totalRaisedNano = await tonApiGetAccountBalanceNano(presaleAddress);
-            const remainingNano = await tonApiGetWalletJettonBalanceNano(
-              presaleAddress,
-              JETTON_MASTER
-            );
-            const soldTotalNano =
-              TOTAL_PRESALE_NANO > remainingNano
-                ? TOTAL_PRESALE_NANO - remainingNano
-                : 0n;
-            const { currentRound, soldInRoundNano } = calcRoundFromSold(soldTotalNano);
-
-            const base: BaseData = {
-              currentRound,
-              soldTotalNano,
-              soldInRoundNano,
-              totalRaisedNano,
-            };
+            const base = await fetchBaseViaTonApiFallback(presaleAddress);
 
             // ✅ prevent flicker on bad fallback snapshots too
             if (!isSaneBaseUpdate(BASE_CACHE.get(bKey)?.data, base)) {

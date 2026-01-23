@@ -36,12 +36,14 @@ export const TONCONNECT_MANIFEST_URL = `${window.location.origin}/tonconnect-man
 export const TONAPI_BASE = IS_TESTNET ? "https://testnet.tonapi.io" : "https://tonapi.io";
 
 /**
- * ✅ Toncenter JSON-RPC base endpoint (keyless)
+ * ✅ Toncenter JSON-RPC (PRIMARY for onchain getters)
  *
- * NOTE: we intentionally keep it keyless in the browser.
- * If you need an API key, use it on a server/proxy and add the key there.
+ * IMPORTANT:
+ * - Any `VITE_*` variable is **not secret** in a frontend build (it is bundled into JS).
+ * - We still avoid custom headers here to reduce CORS/preflight issues.
+ * - Toncenter supports passing the key via `?api_key=...` query param.
  */
-export const TONCENTER_JSONRPC_BASE = IS_TESTNET
+const TONCENTER_JSONRPC_BASE = IS_TESTNET
   ? "https://testnet.toncenter.com/api/v2/jsonRPC"
   : "https://toncenter.com/api/v2/jsonRPC";
 
@@ -50,11 +52,14 @@ export const TONCENTER_API_KEY =
   ((import.meta as any)?.env?.VITE_TONCENTER_KEY as string | undefined) ||
   undefined;
 
-/**
- * ✅ Final JSON-RPC endpoint:
- * (frontend uses keyless endpoint)
- */
-export const TONCENTER_JSONRPC = TONCENTER_JSONRPC_BASE;
+/** ✅ Final JSON-RPC endpoint (adds ?api_key=... when key exists) */
+export const TONCENTER_JSONRPC = (() => {
+  const key = TONCENTER_API_KEY?.trim();
+  if (!key) return TONCENTER_JSONRPC_BASE;
+
+  const sep = TONCENTER_JSONRPC_BASE.includes("?") ? "&" : "?";
+  return `${TONCENTER_JSONRPC_BASE}${sep}api_key=${encodeURIComponent(key)}`;
+})();
 
 /**
  * ✅ Contracts (addresses)
