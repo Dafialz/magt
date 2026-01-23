@@ -54,17 +54,20 @@ export const TONCENTER_API_KEY =
  * - adds ?api_key=... when key exists
  * - stays base URL when key is missing
  */
-export const TONCENTER_JSONRPC =
-  TONCENTER_API_KEY && TONCENTER_API_KEY.trim().length > 0
-    ? `${TONCENTER_JSONRPC_BASE}?api_key=${encodeURIComponent(TONCENTER_API_KEY.trim())}`
-    : TONCENTER_JSONRPC_BASE;
+export const TONCENTER_JSONRPC = (() => {
+  // IMPORTANT: do NOT put API keys into the browser URL (it leaks and can cause 401 loops).
+  // We keep this endpoint keyless for the frontend. If you need a key, use it on a server/proxy.
+  return detectNetwork() === "mainnet"
+    ? "https://toncenter.com/api/v2/jsonRPC"
+    : "https://testnet.toncenter.com/api/v2/jsonRPC";
+})();
 
 /**
  * ✅ Contracts (addresses)
  * Change ONLY these when you redeploy.
  */
 export const PRESALE_CONTRACT = IS_TESTNET
-  ? "EQDaRW-TVxbF9pINB_zdBQgbR66cp2nkKZP9S3fvRbj7aoE4"
+  ? "EQA5hmaTH4pNyqOQeGCjxIMlYmpgqrbSnS_RaYBXKPJUpUeW"
   : "EQB5YKJxw9D_FFLzHHg4yXlbaSWlmy9p4d2Akk3TsnlYxx94";
 
 export const JETTON_MASTER = IS_TESTNET
