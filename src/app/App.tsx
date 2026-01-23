@@ -52,7 +52,7 @@ function buildClaimPayloadBase64(): string {
   const qid = BigInt(Date.now());
   const cell = beginCell()
     .storeUint(0x434c4149, 32) // "CLAI"
-    .storeInt(qid, 257) // Claim.query_id: Int
+    .storeInt(qid, 257) // Claim.query_id: Int.
     .endCell();
 
   return bytesToBase64(cell.toBoc({ idx: false }));
