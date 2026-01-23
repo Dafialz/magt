@@ -64,7 +64,7 @@ export const TONCENTER_JSONRPC =
  * Change ONLY these when you redeploy.
  */
 export const PRESALE_CONTRACT = IS_TESTNET
-  ? "EQA5hmaTH4pNyqOQeGCjxIMlYmpgqrbSnS_RaYBXKPJUpUeW"
+  ? "EQDaRW-TVxbF9pINB_zdBQgbR66cp2nkKZP9S3fvRbj7aoE4"
   : "EQB5YKJxw9D_FFLzHHg4yXlbaSWlmy9p4d2Akk3TsnlYxx94";
 
 export const JETTON_MASTER = IS_TESTNET
