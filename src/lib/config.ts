@@ -36,11 +36,12 @@ export const TONCONNECT_MANIFEST_URL = `${window.location.origin}/tonconnect-man
 export const TONAPI_BASE = IS_TESTNET ? "https://testnet.tonapi.io" : "https://tonapi.io";
 
 /**
- * ✅ Toncenter JSON-RPC (PRIMARY for onchain getters)
- * Without API key Toncenter is rate-limited. You can set:
- * VITE_TONCENTER_API_KEY or VITE_TONCENTER_KEY
+ * ✅ Toncenter JSON-RPC base endpoint (keyless)
+ *
+ * NOTE: we intentionally keep it keyless in the browser.
+ * If you need an API key, use it on a server/proxy and add the key there.
  */
-const TONCENTER_JSONRPC_BASE = IS_TESTNET
+export const TONCENTER_JSONRPC_BASE = IS_TESTNET
   ? "https://testnet.toncenter.com/api/v2/jsonRPC"
   : "https://toncenter.com/api/v2/jsonRPC";
 
@@ -51,16 +52,9 @@ export const TONCENTER_API_KEY =
 
 /**
  * ✅ Final JSON-RPC endpoint:
- * - adds ?api_key=... when key exists
- * - stays base URL when key is missing
+ * (frontend uses keyless endpoint)
  */
-export const TONCENTER_JSONRPC = (() => {
-  // IMPORTANT: do NOT put API keys into the browser URL (it leaks and can cause 401 loops).
-  // We keep this endpoint keyless for the frontend. If you need a key, use it on a server/proxy.
-  return detectNetwork() === "mainnet"
-    ? "https://toncenter.com/api/v2/jsonRPC"
-    : "https://testnet.toncenter.com/api/v2/jsonRPC";
-})();
+export const TONCENTER_JSONRPC = TONCENTER_JSONRPC_BASE;
 
 /**
  * ✅ Contracts (addresses)
