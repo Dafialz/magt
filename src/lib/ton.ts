@@ -37,8 +37,8 @@ export function toNanoTon(ton: number | string): string {
 
 /**
  * Нормалізує введення TON (для інпутів):
- * - тільки цифри і крапка
- * - максимум 9 знаків після крапки
+ * - тільки цифри і крапка.
+ * - максимум 9 знаків після крапки.
  */
 export function sanitizeTonInput(v: string): string {
   const cleaned = v.replace(/[^0-9.]/g, "");

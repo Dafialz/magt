@@ -464,7 +464,7 @@ function isSaneBaseUpdate(
   const nextIsZeroed = next.soldTotalNano === 0n && next.totalRaisedNano === 0n;
   if (prevHadProgress && nextIsZeroed) return false;
 
-  // Sold/raised should not go backwards
+  // Sold/raised should not go backwards.
   if (next.soldTotalNano < prev.soldTotalNano) return false;
   if (next.totalRaisedNano < prev.totalRaisedNano) return false;
 
