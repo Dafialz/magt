@@ -37,7 +37,7 @@ export type PresaleSnapshot = {
   claimableBuyerNano: bigint;
   claimableReferralNano: bigint;
 
-  // ✅ backwards compat (total = buyer + referral)
+  // ✅ backwards compat (total = buyer + referral.)
   claimableNano: bigint;
 };
 

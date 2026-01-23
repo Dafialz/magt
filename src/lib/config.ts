@@ -63,7 +63,7 @@ export const TONCENTER_JSONRPC = (() => {
 
 /**
  * ✅ Contracts (addresses)
- * Change ONLY these when you redeploy.
+ * Change ONLY these when you redeploy...
  */
 export const PRESALE_CONTRACT = IS_TESTNET
   ? "EQA5hmaTH4pNyqOQeGCjxIMlYmpgqrbSnS_RaYBXKPJUpUeW"
