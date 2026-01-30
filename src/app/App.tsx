@@ -75,6 +75,12 @@ export default function App() {
     claimableReferralNano: 0n,
 
     claimableNano: 0n,
+
+    // ✅ NEW fields required by PresaleSnapshot type
+    isPending: false,
+    pendingUntil: 0n,
+    pendingQid: 0n,
+    canCancelPending: false,
   });
 
   const [refreshTick, setRefreshTick] = useState(0);
