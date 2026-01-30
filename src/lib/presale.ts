@@ -39,6 +39,12 @@ export type PresaleSnapshot = {
 
   // ✅ backwards compat (total = buyer + referral.)
   claimableNano: bigint;
+
+  // ✅ pending diagnostics for UI (so users don't need FORCE_RESTORE)
+  isPending: boolean;
+  pendingUntil: bigint; // unix seconds
+  pendingQid: bigint;   // uint64 stored as bigint
+  canCancelPending: boolean; // pending==true AND pendingUntil <= now()
 };
 
 /* ===== price (✅ EXACTLY as in presale.tact: roundPriceNano) =====
@@ -232,7 +238,9 @@ let TONCENTER_QUEUE: Promise<void> = Promise.resolve();
 let TONCENTER_LAST_AT = 0;
 
 function toncenterMinIntervalMs() {
-  return TONCENTER_API_KEY ? 200 : 1200;
+  // Toncenter/ton-http-api backends can be strict on RPS and may respond with 429/422/500
+  // if we spam it from the browser. Keep a conservative interval.
+  return TONCENTER_API_KEY ? 1200 : 1500;
 }
 
 async function toncenterSchedule(): Promise<() => void> {
@@ -262,7 +270,9 @@ async function toncenterRpc<T>(method: string, params: any): Promise<T> {
   const t = setTimeout(() => ac.abort(), timeoutMs);
 
   try {
-    const body = { jsonrpc: "2.0", id: 1, method, params };
+    // IMPORTANT: Some ton-http-api based backends validate JSON-RPC schema strictly.
+    // In particular, `id` should be a string (number may yield HTTP 422 on strict validators).
+    const body = { jsonrpc: "2.0", id: "1", method, params };
 
     let r: Response;
     try {
@@ -287,7 +297,23 @@ async function toncenterRpc<T>(method: string, params: any): Promise<T> {
       TONCENTER_LAST_AT = Date.now();
     }
 
+    // Rate limit
     if (r.status === 429) throw new RateLimitError(60_000, "TONCENTER_RATE_LIMIT");
+
+    // Treat these as "provider cooldown" to avoid spamming:
+    // - 401/403: wrong key / key revoked / network mismatch
+    // - 422: schema/params validation error (common with strict JSON-RPC validators)
+    // - 5xx: upstream instability
+    if ([401, 403].includes(r.status)) {
+      throw new RateLimitError(10 * 60_000, `TONCENTER_AUTH_${r.status}`);
+    }
+    if (r.status === 422) {
+      throw new RateLimitError(2 * 60_000, "TONCENTER_BAD_REQUEST");
+    }
+    if ([500, 502, 503, 504].includes(r.status)) {
+      throw new RateLimitError(60_000, `TONCENTER_UPSTREAM_${r.status}`);
+    }
+
     if (!r.ok) throw new Error(`TONCENTER_HTTP_${r.status}`);
 
     const j = (await r.json()) as any;
@@ -321,7 +347,7 @@ async function toncenterRunGetMethod(
 }
 
 /* ===========================
-   ✅ claimable argument helpers
+   ✅ claimable/pending argument helpers
    =========================== */
 
 function addressArgToBocB64(addr: string): string {
@@ -436,12 +462,24 @@ type BaseEntry = {
   ts: number;
   data?: Omit<
     PresaleSnapshot,
-    "claimableNano" | "claimableBuyerNano" | "claimableReferralNano"
+    "claimableNano" |
+    "claimableBuyerNano" |
+    "claimableReferralNano" |
+    "isPending" |
+    "pendingUntil" |
+    "pendingQid" |
+    "canCancelPending"
   >;
   inFlight?: Promise<
     Omit<
       PresaleSnapshot,
-      "claimableNano" | "claimableBuyerNano" | "claimableReferralNano"
+      "claimableNano" |
+      "claimableBuyerNano" |
+      "claimableReferralNano" |
+      "isPending" |
+      "pendingUntil" |
+      "pendingQid" |
+      "canCancelPending"
     >
   >;
   cooldownUntil?: number;
@@ -451,9 +489,24 @@ type BaseData = NonNullable<BaseEntry["data"]>;
 
 type ClaimEntry = {
   ts: number;
+
+  // claimables
   buyer?: bigint;
   referral?: bigint;
-  inFlight?: Promise<{ buyer: bigint; referral: bigint }>;
+
+  // pending
+  isPending?: boolean;
+  pendingUntil?: bigint;
+  pendingQid?: bigint;
+
+  inFlight?: Promise<{
+    buyer: bigint;
+    referral: bigint;
+    isPending: boolean;
+    pendingUntil: bigint;
+    pendingQid: bigint;
+  }>;
+
   cooldownUntil?: number;
 };
 
@@ -515,7 +568,13 @@ export async function getPresaleSnapshot(args?: {
     | Promise<
         Omit<
           PresaleSnapshot,
-          "claimableNano" | "claimableBuyerNano" | "claimableReferralNano"
+          "claimableNano" |
+          "claimableBuyerNano" |
+          "claimableReferralNano" |
+          "isPending" |
+          "pendingUntil" |
+          "pendingQid" |
+          "canCancelPending"
         >
       >
     | undefined = baseEntry.inFlight;
@@ -527,8 +586,7 @@ export async function getPresaleSnapshot(args?: {
       if (baseEntry.data) {
         basePromise = Promise.resolve(baseEntry.data);
       } else {
-        // We are in cooldown (likely due to 429). If we have no cached snapshot yet,
-        // try the TonAPI fallback once instead of hard-failing the UI.
+        // cooldown + no cached -> TonAPI fallback once
         basePromise = (async () => {
           const base = await fetchBaseViaTonApiFallback(presaleAddress);
 
@@ -596,7 +654,7 @@ export async function getPresaleSnapshot(args?: {
             });
             if (prev?.data) return prev.data;
 
-            // No cache yet -> immediately try TonAPI fallback
+            // No cache yet -> TonAPI fallback
             const base = await fetchBaseViaTonApiFallback(presaleAddress);
 
             if (!isSaneBaseUpdate(BASE_CACHE.get(bKey)?.data, base)) {
@@ -612,7 +670,6 @@ export async function getPresaleSnapshot(args?: {
           try {
             const base = await fetchBaseViaTonApiFallback(presaleAddress);
 
-            // ✅ prevent flicker on bad fallback snapshots too
             if (!isSaneBaseUpdate(BASE_CACHE.get(bKey)?.data, base)) {
               const prev = BASE_CACHE.get(bKey);
               if (prev?.data) return prev.data;
@@ -637,9 +694,13 @@ export async function getPresaleSnapshot(args?: {
 
   const base = await basePromise;
 
-  // ✅ claimables (buyer/referral) — per-wallet cache
+  // ✅ claimables + pending (per-wallet cache)
   let claimBuyer = 0n;
   let claimReferral = 0n;
+
+  let isPending = false;
+  let pendingUntil = 0n;
+  let pendingQid = 0n;
 
   if (walletAddress) {
     const cKey = claimKey(presaleAddress, walletAddress);
@@ -648,16 +709,32 @@ export async function getPresaleSnapshot(args?: {
     if (claimEntry.cooldownUntil && now < claimEntry.cooldownUntil) {
       claimBuyer = claimEntry.buyer ?? 0n;
       claimReferral = claimEntry.referral ?? 0n;
+      isPending = claimEntry.isPending ?? false;
+      pendingUntil = claimEntry.pendingUntil ?? 0n;
+      pendingQid = claimEntry.pendingQid ?? 0n;
     } else if (claimEntry.inFlight) {
       const r = await claimEntry.inFlight;
       claimBuyer = r.buyer;
       claimReferral = r.referral;
+      isPending = r.isPending;
+      pendingUntil = r.pendingUntil;
+      pendingQid = r.pendingQid;
     } else {
       const need = force || now - claimEntry.ts >= CLAIMABLE_MIN_INTERVAL_MS;
 
-      if (!need && claimEntry.buyer != null && claimEntry.referral != null) {
+      if (
+        !need &&
+        claimEntry.buyer != null &&
+        claimEntry.referral != null &&
+        claimEntry.isPending != null &&
+        claimEntry.pendingUntil != null &&
+        claimEntry.pendingQid != null
+      ) {
         claimBuyer = claimEntry.buyer;
         claimReferral = claimEntry.referral;
+        isPending = claimEntry.isPending;
+        pendingUntil = claimEntry.pendingUntil;
+        pendingQid = claimEntry.pendingQid;
       } else {
         const doClaim = (async () => {
           try {
@@ -666,6 +743,13 @@ export async function getPresaleSnapshot(args?: {
             const BUYER_METHODS = ["claimableBuyerNano", "claimableBuyer"];
             const REF_METHODS = ["claimableReferralNano", "claimableReferral"];
             const TOTAL_METHODS = ["claimableNano", "claimable"];
+
+            // ✅ pending getters from your Presale.tact
+            const PENDING_METHODS = {
+              isPending: ["isPendingGetter", "isPending"],
+              pendingUntil: ["pendingUntilGetter", "pendingUntil"],
+              pendingQid: ["pendingQidGetter", "pendingQid"],
+            };
 
             const firstToncenter = async (methods: string[]): Promise<bigint | null> => {
               for (const m of methods) {
@@ -693,46 +777,111 @@ export async function getPresaleSnapshot(args?: {
             };
 
             // ✅ PRIMARY: Toncenter
-            const [b1, r1] = await Promise.all([
+            const [b1, r1, pIs1, pUntil1, pQid1] = await Promise.all([
               firstToncenter(BUYER_METHODS),
               firstToncenter(REF_METHODS),
+              firstToncenter(PENDING_METHODS.isPending),
+              firstToncenter(PENDING_METHODS.pendingUntil),
+              firstToncenter(PENDING_METHODS.pendingQid),
             ]);
 
-            if (b1 != null || r1 != null) {
-              return { buyer: b1 ?? 0n, referral: r1 ?? 0n };
+            if (b1 != null || r1 != null || pIs1 != null || pUntil1 != null || pQid1 != null) {
+              return {
+                buyer: b1 ?? 0n,
+                referral: r1 ?? 0n,
+                isPending: (pIs1 ?? 0n) !== 0n,
+                pendingUntil: pUntil1 ?? 0n,
+                pendingQid: pQid1 ?? 0n,
+              };
             }
 
             // fallback: old single getter (total)
             const total1 = await firstToncenter(TOTAL_METHODS);
-            if (total1 != null) return { buyer: total1, referral: 0n };
+            if (total1 != null) {
+              // still try pending via toncenter once more (optional)
+              const [pIs, pUntil, pQid] = await Promise.all([
+                firstToncenter(PENDING_METHODS.isPending),
+                firstToncenter(PENDING_METHODS.pendingUntil),
+                firstToncenter(PENDING_METHODS.pendingQid),
+              ]);
+
+              return {
+                buyer: total1,
+                referral: 0n,
+                isPending: (pIs ?? 0n) !== 0n,
+                pendingUntil: pUntil ?? 0n,
+                pendingQid: pQid ?? 0n,
+              };
+            }
 
             // ✅ LAST fallback: TonAPI (may be blocked by CORS)
-            const [b2, r2] = await Promise.all([
+            const [b2, r2, pIs2, pUntil2, pQid2] = await Promise.all([
               firstTonApi(BUYER_METHODS),
               firstTonApi(REF_METHODS),
+              firstTonApi(PENDING_METHODS.isPending),
+              firstTonApi(PENDING_METHODS.pendingUntil),
+              firstTonApi(PENDING_METHODS.pendingQid),
             ]);
 
-            if (b2 != null || r2 != null) {
-              return { buyer: b2 ?? 0n, referral: r2 ?? 0n };
+            if (b2 != null || r2 != null || pIs2 != null || pUntil2 != null || pQid2 != null) {
+              return {
+                buyer: b2 ?? 0n,
+                referral: r2 ?? 0n,
+                isPending: (pIs2 ?? 0n) !== 0n,
+                pendingUntil: pUntil2 ?? 0n,
+                pendingQid: pQid2 ?? 0n,
+              };
             }
 
             const total2 = await firstTonApi(TOTAL_METHODS);
-            if (total2 != null) return { buyer: total2, referral: 0n };
+            if (total2 != null) {
+              const [pIs, pUntil, pQid] = await Promise.all([
+                firstTonApi(PENDING_METHODS.isPending),
+                firstTonApi(PENDING_METHODS.pendingUntil),
+                firstTonApi(PENDING_METHODS.pendingQid),
+              ]);
 
-            return { buyer: 0n, referral: 0n };
+              return {
+                buyer: total2,
+                referral: 0n,
+                isPending: (pIs ?? 0n) !== 0n,
+                pendingUntil: pUntil ?? 0n,
+                pendingQid: pQid ?? 0n,
+              };
+            }
+
+            return { buyer: 0n, referral: 0n, isPending: false, pendingUntil: 0n, pendingQid: 0n };
           } catch (e: any) {
             if (e instanceof RateLimitError) {
               const prev = CLAIM_CACHE.get(cKey);
               const cooldownUntil = Date.now() + Math.max(30_000, e.retryAfterMs);
+
               CLAIM_CACHE.set(cKey, {
                 ts: prev?.ts ?? 0,
                 buyer: prev?.buyer,
                 referral: prev?.referral,
+                isPending: prev?.isPending,
+                pendingUntil: prev?.pendingUntil,
+                pendingQid: prev?.pendingQid,
                 cooldownUntil,
               });
-              return { buyer: prev?.buyer ?? 0n, referral: prev?.referral ?? 0n };
+
+              return {
+                buyer: prev?.buyer ?? 0n,
+                referral: prev?.referral ?? 0n,
+                isPending: prev?.isPending ?? false,
+                pendingUntil: prev?.pendingUntil ?? 0n,
+                pendingQid: prev?.pendingQid ?? 0n,
+              };
             }
-            return { buyer: claimEntry.buyer ?? 0n, referral: claimEntry.referral ?? 0n };
+
+            return {
+              buyer: claimEntry.buyer ?? 0n,
+              referral: claimEntry.referral ?? 0n,
+              isPending: claimEntry.isPending ?? false,
+              pendingUntil: claimEntry.pendingUntil ?? 0n,
+              pendingQid: claimEntry.pendingQid ?? 0n,
+            };
           } finally {
             const cur = CLAIM_CACHE.get(cKey);
             if (cur) delete cur.inFlight;
@@ -744,14 +893,27 @@ export async function getPresaleSnapshot(args?: {
         const res = await doClaim;
         claimBuyer = res.buyer;
         claimReferral = res.referral;
+        isPending = res.isPending;
+        pendingUntil = res.pendingUntil;
+        pendingQid = res.pendingQid;
 
-        CLAIM_CACHE.set(cKey, { ts: Date.now(), buyer: claimBuyer, referral: claimReferral });
+        CLAIM_CACHE.set(cKey, {
+          ts: Date.now(),
+          buyer: claimBuyer,
+          referral: claimReferral,
+          isPending,
+          pendingUntil,
+          pendingQid,
+        });
       }
     }
   }
 
   const safeBuyer = claimBuyer < 0n ? 0n : claimBuyer;
   const safeRef = claimReferral < 0n ? 0n : claimReferral;
+
+  const nowSec = BigInt(Math.floor(Date.now() / 1000));
+  const canCancelPending = isPending && pendingUntil > 0n && pendingUntil <= nowSec;
 
   return {
     currentRound: base.currentRound,
@@ -762,5 +924,10 @@ export async function getPresaleSnapshot(args?: {
     claimableBuyerNano: safeBuyer,
     claimableReferralNano: safeRef,
     claimableNano: safeBuyer + safeRef,
+
+    isPending,
+    pendingUntil,
+    pendingQid,
+    canCancelPending,
   };
 }

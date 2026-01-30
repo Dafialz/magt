@@ -29,30 +29,47 @@ export const IS_TESTNET = NETWORK === "testnet";
 
 /**
  * ✅ TonConnect manifest MUST be served from the same domain
+ * For mainnet domain magtcoin.com it is correct.
+ * If you later create testnet.magtcoin.com — manifest must exist there too.
  */
 export const TONCONNECT_MANIFEST_URL = `${window.location.origin}/tonconnect-manifest.json`;
 
-/** ✅ TonAPI base (DO NOT rely on it as primary in browser; may be blocked by CORS/429) */
+/** ✅ TonAPI base */
 export const TONAPI_BASE = IS_TESTNET ? "https://testnet.tonapi.io" : "https://tonapi.io";
 
 /**
- * ✅ Toncenter JSON-RPC (PRIMARY for onchain getters)
- *
- * IMPORTANT:
- * - Any `VITE_*` variable is **not secret** in a frontend build (it is bundled into JS).
- * - We still avoid custom headers here to reduce CORS/preflight issues.
- * - Toncenter supports passing the key via `?api_key=...` query param.
+ * ✅ Toncenter JSON-RPC endpoints (network-specific)
  */
 const TONCENTER_JSONRPC_BASE = IS_TESTNET
   ? "https://testnet.toncenter.com/api/v2/jsonRPC"
   : "https://toncenter.com/api/v2/jsonRPC";
 
-export const TONCENTER_API_KEY =
-  ((import.meta as any)?.env?.VITE_TONCENTER_API_KEY as string | undefined) ||
-  ((import.meta as any)?.env?.VITE_TONCENTER_KEY as string | undefined) ||
+/**
+ * ✅ Use different keys for different networks.
+ * Put these in Netlify env:
+ * - VITE_TONCENTER_API_KEY_MAINNET
+ * - VITE_TONCENTER_API_KEY_TESTNET
+ *
+ * If you set only one key and it doesn't match the network -> you will get 401.
+ *
+ * ⚠️ Any VITE_* is public in frontend build. Do NOT put "secret" keys here if you don't want them exposed.
+ */
+const TONCENTER_API_KEY_MAINNET =
+  ((import.meta as any)?.env?.VITE_TONCENTER_API_KEY_MAINNET as string | undefined) ||
+  ((import.meta as any)?.env?.VITE_TONCENTER_MAINNET_KEY as string | undefined) ||
   undefined;
 
-/** ✅ Final JSON-RPC endpoint (adds ?api_key=... when key exists) */
+const TONCENTER_API_KEY_TESTNET =
+  ((import.meta as any)?.env?.VITE_TONCENTER_API_KEY_TESTNET as string | undefined) ||
+  ((import.meta as any)?.env?.VITE_TONCENTER_TESTNET_KEY as string | undefined) ||
+  undefined;
+
+export const TONCENTER_API_KEY = (IS_TESTNET ? TONCENTER_API_KEY_TESTNET : TONCENTER_API_KEY_MAINNET) || undefined;
+
+/**
+ * ✅ Final JSON-RPC endpoint (adds ?api_key=... when key exists)
+ * If key is missing -> works without key (may be rate-limited, but won't be 401).
+ */
 export const TONCENTER_JSONRPC = (() => {
   const key = TONCENTER_API_KEY?.trim();
   if (!key) return TONCENTER_JSONRPC_BASE;
@@ -64,9 +81,11 @@ export const TONCENTER_JSONRPC = (() => {
 /**
  * ✅ Contracts (addresses)
  * Change ONLY these when you redeploy...
+ *
+ * testnet values must match your presale-contract repo scripts/addresses.ts
  */
 export const PRESALE_CONTRACT = IS_TESTNET
-  ? "EQA5hmaTH4pNyqOQeGCjxIMlYmpgqrbSnS_RaYBXKPJUpUeW"
+  ? "EQBUUq2H8W1ftuqMcpgmX6xy9EK-NsCmIeYFwuB5zQB-K80v"
   : "EQB5YKJxw9D_FFLzHHg4yXlbaSWlmy9p4d2Akk3TsnlYxx94";
 
 export const JETTON_MASTER = IS_TESTNET
