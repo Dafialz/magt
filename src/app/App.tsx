@@ -49,7 +49,9 @@ function bytesToBase64(bytes: Uint8Array) {
 
 // ✅ Claim payload: opcode "CLAI" (0x434C4149) + query_id:Int (257 bits)
 function buildClaimPayloadBase64(): string {
-  const qid = BigInt(Date.now());
+  // Make it more unique than just Date.now() (still fits Int)
+  const qid = (BigInt(Date.now()) << 16n) ^ BigInt(Math.floor(Math.random() * 65536));
+
   const cell = beginCell()
     .storeUint(0x434c4149, 32) // "CLAI"
     .storeInt(qid, 257) // Claim.query_id: Int.
@@ -176,7 +178,9 @@ export default function App() {
         messages: [
           {
             address: PRESALE_CONTRACT,
-            amount: toNanoTon("0.35"),
+            // ✅ FIX: 0.35 TON is often not enough for claim -> bounce.
+            // Use 0.7 TON (stable), matching your scripts/contract expectations.
+            amount: toNanoTon("0.7"),
             payload: buildClaimPayloadBase64(),
           },
         ],
@@ -241,8 +245,7 @@ export default function App() {
             >
               {t(lang, "app__claim")}
             </button>
-
-                      </Card>
+          </Card>
 
           <Card>
             <div className="text-sm text-zinc-400">{t(lang, "app__referral_magt")}</div>
