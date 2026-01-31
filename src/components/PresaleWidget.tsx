@@ -65,7 +65,8 @@ export function PresaleWidget({
     return buildBuyPayloadBase64(ref);
   }, [addr]);
 
-  const ton = toNumberSafe(tonAmount);
+  // NOTE: this is an ESTIMATE for the current round price; final amount is calculated on-chain.
+  const ton = Math.max(0, toNumberSafe(tonAmount));
   const roundPrice = getRoundPriceTon(currentRound);
   const receiveMagt = roundPrice > 0 ? ton / roundPrice : 0;
 
@@ -107,14 +108,10 @@ export function PresaleWidget({
   return (
     <Card>
       <div className="text-lg font-semibold">{t(lang, "buy__title")}</div>
-      <div className="text-xs text-zinc-400">
-        {t(lang, "buy__subtitle")}
-      </div>
+      <div className="text-xs text-zinc-400">{t(lang, "buy__subtitle")}</div>
 
       <div className="mt-4">
-        <div className="mb-1 text-xs text-zinc-400">
-          {t(lang, "buy__pay_label")}
-        </div>
+        <div className="mb-1 text-xs text-zinc-400">{t(lang, "buy__pay_label")}</div>
         <input
           value={tonAmount}
           onChange={(e) => setTonAmount(e.target.value)}
@@ -126,6 +123,10 @@ export function PresaleWidget({
       <div className="mt-2 text-sm text-zinc-300">
         {t(lang, "buy__receive_label")}:{" "}
         <span className="font-semibold">{receiveMagt.toFixed(2)}</span>
+      </div>
+
+      <div className="mt-1 text-xs text-zinc-500">
+        Round {currentRound + 1} · price ≈ {roundPrice.toFixed(6)} TON / MAGT
       </div>
 
       <button
@@ -156,10 +157,7 @@ export function PresaleWidget({
       {status === "error" && (
         <div className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300">
           {t(lang, "buy__status_failed")} {errorMsg}{" "}
-          <button
-            onClick={() => setStatus("idle")}
-            className="ml-1 underline"
-          >
+          <button onClick={() => setStatus("idle")} className="ml-1 underline">
             {t(lang, "buy__try_again")}
           </button>
         </div>

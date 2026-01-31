@@ -49,7 +49,6 @@ function bytesToBase64(bytes: Uint8Array) {
 
 // ✅ Claim payload: opcode "CLAI" (0x434C4149) + query_id:Int (257 bits)
 function buildClaimPayloadBase64(): string {
-  // Make it more unique than just Date.now() (still fits Int)
   const qid = (BigInt(Date.now()) << 16n) ^ BigInt(Math.floor(Math.random() * 65536));
 
   const cell = beginCell()
@@ -75,10 +74,8 @@ export default function App() {
 
     claimableBuyerNano: 0n,
     claimableReferralNano: 0n,
-
     claimableNano: 0n,
 
-    // ✅ NEW fields required by PresaleSnapshot type
     isPending: false,
     pendingUntil: 0n,
     pendingQid: 0n,
@@ -100,6 +97,11 @@ export default function App() {
   );
 
   const yourMagt = useMemo(
+    () => fromNano(snapshot.claimableNano ?? 0n),
+    [snapshot.claimableNano]
+  );
+
+  const buyerClaimableMagt = useMemo(
     () => fromNano(snapshot.claimableBuyerNano ?? 0n),
     [snapshot.claimableBuyerNano]
   );
@@ -153,7 +155,9 @@ export default function App() {
     return () => window.clearInterval(id);
   }, []);
 
-  const claimEnabled = CLAIM_ENABLED_GLOBALLY && !!addr;
+  // ✅ claim only when claimable > 0 AND not pending
+  const hasClaimable = (snapshot.claimableNano ?? 0n) > 0n;
+  const claimEnabled = CLAIM_ENABLED_GLOBALLY && !!addr && hasClaimable && !snapshot.isPending;
 
   const forceRefreshAfterTx = () => {
     if (document.hidden) return;
@@ -178,8 +182,6 @@ export default function App() {
         messages: [
           {
             address: PRESALE_CONTRACT,
-            // ✅ FIX: 0.35 TON is often not enough for claim -> bounce.
-            // Use 0.7 TON (stable), matching your scripts/contract expectations.
             amount: toNanoTon("0.7"),
             payload: buildClaimPayloadBase64(),
           },
@@ -197,120 +199,121 @@ export default function App() {
       <SeoHead lang={lang} />
 
       <div
-        className="fixed inset-0 -z-10"
-        style={{
-          backgroundImage: `url(${bg})`,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
-      />
+        className="relative min-h-screen bg-cover bg-center"
+        style={{ backgroundImage: `url(${bg})` }}
+      >
+        <div className="mx-auto w-full max-w-6xl px-4 pb-16 pt-6">
+          <Header lang={lang} setLang={setLang} />
 
-      <Header lang={lang} onLangChange={setLang} />
-
-      <main className="mx-auto max-w-6xl px-4 py-10">
-        <div className="h-[260px] sm:h-[300px] md:h-[340px] lg:h-[380px]" />
-
-        {/* ✅ 3 SMALL INFO CARDS (ABOVE MAIN 2 CARDS) */}
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Card className="p-4">
-            <div className="text-xs text-zinc-400">{t(lang, "app__network")}</div>
-            <div className="mt-1 text-sm font-semibold">TON</div>
-          </Card>
-
-          <Card className="p-4">
-            <div className="text-xs text-zinc-400">{t(lang, "app__ref_bonus")}</div>
-            <div className="mt-1 text-sm font-semibold">+5%</div>
-          </Card>
-
-          <Card className="p-4">
-            <div className="text-xs text-zinc-400">{t(lang, "app__token")}</div>
-            <div className="mt-1 text-sm font-semibold">MAGT</div>
-          </Card>
-        </div>
-
-        {/* MAIN 2 CARDS */}
-        <div className="mt-6 grid gap-6 md:grid-cols-2">
-          <Card>
-            <div className="text-sm text-zinc-400">{t(lang, "app__your_magt")}</div>
-            <div className="mt-2 text-3xl font-semibold">
-              {yourMagt.toFixed(3)} MAGT
+          {dataError ? (
+            <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-200">
+              <b>{t(lang, "app__onchain_error_prefix")}</b> {dataError}
             </div>
+          ) : null}
 
-            <button
-              disabled={!claimEnabled}
-              onClick={onClaimClick}
-              className="mt-4 h-10 w-full rounded-xl border border-white/10 bg-white/5
+          {/* TOP STATS */}
+          <div className="mt-6 grid gap-4 md:grid-cols-4">
+            <Card>
+              <div className="text-xs text-zinc-400">{t(lang, "app__network")}</div>
+              <div className="mt-1 text-sm font-semibold">Testnet</div>
+            </Card>
+
+            <Card>
+              <div className="text-xs text-zinc-400">USD Raised (est.)</div>
+              <div className="mt-1 text-sm font-semibold">${raisedUsd.toFixed(0)}</div>
+            </Card>
+
+            <Card>
+              <div className="text-xs text-zinc-400">{t(lang, "app__ref_bonus")}</div>
+              <div className="mt-1 text-sm font-semibold">5%</div>
+            </Card>
+
+            <Card>
+              <div className="text-xs text-zinc-400">{t(lang, "app__token")}</div>
+              <div className="mt-1 text-sm font-semibold">MAGT</div>
+            </Card>
+          </div>
+
+          {/* MAIN 2 CARDS */}
+          <div className="mt-6 grid gap-6 md:grid-cols-2">
+            <Card>
+              <div className="text-sm text-zinc-400">{t(lang, "app__your_magt")}</div>
+              <div className="mt-2 text-3xl font-semibold">
+                {yourMagt.toFixed(3)} MAGT
+              </div>
+
+              <div className="mt-2 text-xs text-zinc-400">
+                buyer: {buyerClaimableMagt.toFixed(3)} MAGT · referral:{" "}
+                {referralMagt.toFixed(3)} MAGT
+              </div>
+
+              <button
+                disabled={!claimEnabled}
+                onClick={onClaimClick}
+                className="mt-4 h-10 w-full rounded-xl border border-white/10 bg-white/5
                          text-sm font-semibold hover:bg-white/10 disabled:opacity-60"
-              title={!addr ? t(lang, "presale_widget__9") : undefined}
-            >
-              {t(lang, "app__claim")}
-            </button>
-          </Card>
+                title={
+                  !addr
+                    ? t(lang, "presale_widget__9")
+                    : snapshot.isPending
+                    ? "Pending — try later"
+                    : !hasClaimable
+                    ? "Nothing to claim"
+                    : undefined
+                }
+              >
+                {t(lang, "app__claim")}
+              </button>
+            </Card>
 
-          <Card>
-            <div className="text-sm text-zinc-400">{t(lang, "app__referral_magt")}</div>
-            <div className="mt-2 text-3xl font-semibold">
-              {referralMagt.toFixed(3)} MAGT
-            </div>
+            <Card>
+              <div className="text-sm text-zinc-400">{t(lang, "app__referral_magt")}</div>
+              <div className="mt-2 text-3xl font-semibold">
+                {referralMagt.toFixed(3)} MAGT
+              </div>
 
-            <div className="mt-4">
-              <ReferralButton lang={lang} />
-            </div>
-          </Card>
+              <ReferralButton />
+            </Card>
+          </div>
+
+          {/* PRESALE / CALC */}
+          <div className="mt-10 grid gap-6">
+            {/* ✅ FIX: pass currentRound + refresh hook */}
+            <PresaleWidget
+              lang={lang}
+              currentRound={currentRound}
+              onTxSent={forceRefreshAfterTx}
+            />
+
+            {/* ✅ FIX: PresaleProgress no longer takes snapshot */}
+            <PresaleProgress
+              lang={lang}
+              currentRound={currentRound}
+              soldTotal={soldTotal}
+              soldInRound={soldInRound}
+            />
+
+            {/* ✅ FIX: calculator needs currentRound */}
+            <TonToMagtCalculator lang={lang} currentRound={currentRound} />
+          </div>
+
+          {/* CONTENT */}
+          <div className="mt-10 grid gap-10">
+            <TrustSection lang={lang} />
+            <Tokenomics lang={lang} />
+            <Roadmap lang={lang} />
+
+            {/* ✅ FIX: ProjectsSection expects raisedUsd */}
+            <ProjectsSection lang={lang} raisedUsd={raisedUsd} />
+
+            <FAQ lang={lang} />
+          </div>
+
+          <div className="mt-12">
+            <SiteFooter lang={lang} />
+          </div>
         </div>
-
-        <div className="mt-10">
-          <PresaleProgress
-            lang={lang}
-            currentRound={currentRound}
-            soldInRound={soldInRound}
-            soldTotal={soldTotal}
-          />
-
-          {dataError && (
-            <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-              {t(lang, "app__onchain_error_prefix")} {dataError}
-            </div>
-          )}
-        </div>
-
-        <div className="mt-10">
-          <TonToMagtCalculator lang={lang} currentRound={currentRound} />
-        </div>
-
-        <section id="buy" className="mt-10 scroll-mt-24">
-          {/* ✅ FIX: pass currentRound so Buy MAGT "You receive" uses round price */}
-          <PresaleWidget
-            lang={lang}
-            currentRound={currentRound}
-            onTxSent={forceRefreshAfterTx}
-          />
-        </section>
-
-        <div className="mt-10">
-          <ProjectsSection lang={lang} raisedUsd={raisedUsd} />
-        </div>
-
-        <div className="mt-10">
-          <TrustSection lang={lang} />
-        </div>
-
-        <div className="mt-10">
-          <Tokenomics lang={lang} />
-        </div>
-
-        <div className="mt-10">
-          <Roadmap lang={lang} />
-        </div>
-
-        <section id="faq" className="mt-10 scroll-mt-24">
-          <FAQ lang={lang} />
-        </section>
-
-        <section id="social" className="mt-10 scroll-mt-24">
-          <SiteFooter lang={lang} />
-        </section>
-      </main>
+      </div>
     </div>
   );
 }

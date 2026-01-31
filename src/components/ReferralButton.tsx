@@ -1,76 +1,33 @@
 // src/components/ReferralButton.tsx
-import React from "react";
-import type { LangCode } from "../lib/i18n";
-import { t } from "../lib/i18n";
+import { useTonAddress } from "@tonconnect/ui-react";
 
-const LS_REF_OWNER = "magt_ref_owner";
+export function ReferralButton() {
+  const address = useTonAddress();
 
-export function ReferralButton({
-  lang,
-  address,
-}: {
-  lang: LangCode;
-  address?: string | null;
-}) {
-  const [copied, setCopied] = React.useState(false);
+  if (!address) {
+    return (
+      <button
+        disabled
+        className="h-10 w-full rounded-xl border border-white/10 bg-white/5 text-sm opacity-60"
+      >
+        Connect wallet
+      </button>
+    );
+  }
 
-  const link = React.useMemo(() => {
-    const base = window.location.origin;
+  const refLink = `${window.location.origin}/?ref=${address}`;
 
-    // ✅ keep existing params (network=testnet etc.)
-    const params = new URLSearchParams(window.location.search);
-
-    if (address) params.set("ref", address);
-    else params.delete("ref");
-
-    const qs = params.toString();
-    return qs ? `${base}/?${qs}` : `${base}/`;
-  }, [address]);
-
-  async function copy() {
-    // ✅ store owner first
-    if (address) {
-      try {
-        localStorage.setItem(LS_REF_OWNER, address);
-      } catch {
-        // ignore
-      }
-    }
-
-    try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    } catch {
-      // fallback
-      try {
-        const el = document.createElement("textarea");
-        el.value = link;
-        el.setAttribute("readonly", "");
-        el.style.position = "fixed";
-        el.style.left = "-9999px";
-        document.body.appendChild(el);
-        el.select();
-        document.execCommand("copy");
-        document.body.removeChild(el);
-
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1200);
-      } catch {
-        // do nothing
-      }
-    }
+  function copy() {
+    navigator.clipboard.writeText(refLink);
   }
 
   return (
     <button
       onClick={copy}
-      className="rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-900 disabled:opacity-60"
-      type="button"
-      disabled={!address}
-      title={!address ? t(lang, "ref__need_wallet") : undefined}
+      className="h-10 w-full rounded-xl border border-white/10 bg-white/5
+                 text-sm font-semibold hover:bg-white/10"
     >
-      {copied ? t(lang, "copied") : t(lang, "copy_ref")}
+      Copy referral link
     </button>
   );
 }
