@@ -49,7 +49,8 @@ function bytesToBase64(bytes: Uint8Array) {
 
 // ✅ Claim payload: opcode "CLAI" (0x434C4149) + query_id:Int (257 bits)
 function buildClaimPayloadBase64(): string {
-  const qid = (BigInt(Date.now()) << 16n) ^ BigInt(Math.floor(Math.random() * 65536));
+  const qid =
+    (BigInt(Date.now()) << 16n) ^ BigInt(Math.floor(Math.random() * 65536));
 
   const cell = beginCell()
     .storeUint(0x434c4149, 32) // "CLAI"
@@ -58,6 +59,10 @@ function buildClaimPayloadBase64(): string {
 
   return bytesToBase64(cell.toBoc({ idx: false }));
 }
+
+// ✅ CancelPending payload (Tact message CancelPending {})
+// NOTE: This BOC is deterministic for your contract message layout and matches your blueprint script output.
+const CANCEL_PENDING_PAYLOAD_B64 = "te6cckEBAQEABgAACPYniBlgmyKX";
 
 export default function App() {
   const { lang, setLang } = useLang();
@@ -155,9 +160,12 @@ export default function App() {
     return () => window.clearInterval(id);
   }, []);
 
-  // ✅ claim only when claimable > 0 AND not pending
   const hasClaimable = (snapshot.claimableNano ?? 0n) > 0n;
-  const claimEnabled = CLAIM_ENABLED_GLOBALLY && !!addr && hasClaimable && !snapshot.isPending;
+  const canResolvePending =
+    !!addr && hasClaimable && snapshot.isPending && snapshot.canCancelPending;
+  const canClaimNow =
+    CLAIM_ENABLED_GLOBALLY && !!addr && hasClaimable && !snapshot.isPending;
+  const claimEnabled = canClaimNow || canResolvePending;
 
   const forceRefreshAfterTx = () => {
     if (document.hidden) return;
@@ -173,10 +181,35 @@ export default function App() {
     }, 30_000);
   };
 
+  const cancelPending = async () => {
+    if (!addr) return;
+    try {
+      await tonConnectUI.sendTransaction({
+        validUntil: safeValidUntil(5 * 60 - 10),
+        messages: [
+          {
+            address: PRESALE_CONTRACT,
+            amount: toNanoTon("0.25"),
+            payload: CANCEL_PENDING_PAYLOAD_B64,
+          },
+        ],
+      });
+      forceRefreshAfterTx();
+    } catch (e) {
+      console.error("[CANCEL_PENDING ERROR]", e);
+    }
+  };
+
   const onClaimClick = async () => {
     if (!addr) return;
 
     try {
+      // ✅ If pending expired, resolve it in a user-safe way: CancelPending -> Claim
+      if (snapshot.isPending && snapshot.canCancelPending) {
+        await cancelPending();
+        await new Promise((r) => setTimeout(r, 2500));
+      }
+
       await tonConnectUI.sendTransaction({
         validUntil: safeValidUntil(5 * 60 - 10),
         messages: [
@@ -199,121 +232,133 @@ export default function App() {
       <SeoHead lang={lang} />
 
       <div
-        className="relative min-h-screen bg-cover bg-center"
-        style={{ backgroundImage: `url(${bg})` }}
-      >
-        <div className="mx-auto w-full max-w-6xl px-4 pb-16 pt-6">
-          <Header lang={lang} setLang={setLang} />
+        className="fixed inset-0 -z-10"
+        style={{
+          backgroundImage: `url(${bg})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center top",
+          backgroundRepeat: "no-repeat",
+        }}
+      />
 
-          {dataError ? (
-            <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-200">
-              <b>{t(lang, "app__onchain_error_prefix")}</b> {dataError}
-            </div>
-          ) : null}
+      <Header lang={lang} onLangChange={setLang} />
 
-          {/* TOP STATS */}
-          <div className="mt-6 grid gap-4 md:grid-cols-4">
-            <Card>
-              <div className="text-xs text-zinc-400">{t(lang, "app__network")}</div>
-              <div className="mt-1 text-sm font-semibold">Testnet</div>
-            </Card>
+      <main className="mx-auto max-w-6xl px-4 py-10">
+        <div className="h-[260px] sm:h-[300px] md:h-[340px] lg:h-[380px]" />
 
-            <Card>
-              <div className="text-xs text-zinc-400">USD Raised (est.)</div>
-              <div className="mt-1 text-sm font-semibold">${raisedUsd.toFixed(0)}</div>
-            </Card>
+        {/* ✅ 3 SMALL INFO CARDS (ABOVE MAIN 2 CARDS) */}
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Card className="p-4">
+            <div className="text-xs text-zinc-400">{t(lang, "app__network")}</div>
+            <div className="mt-1 text-sm font-semibold">TON</div>
+          </Card>
 
-            <Card>
-              <div className="text-xs text-zinc-400">{t(lang, "app__ref_bonus")}</div>
-              <div className="mt-1 text-sm font-semibold">5%</div>
-            </Card>
+          <Card className="p-4">
+            <div className="text-xs text-zinc-400">{t(lang, "app__ref_bonus")}</div>
+            <div className="mt-1 text-sm font-semibold">+5%</div>
+          </Card>
 
-            <Card>
-              <div className="text-xs text-zinc-400">{t(lang, "app__token")}</div>
-              <div className="mt-1 text-sm font-semibold">MAGT</div>
-            </Card>
-          </div>
-
-          {/* MAIN 2 CARDS */}
-          <div className="mt-6 grid gap-6 md:grid-cols-2">
-            <Card>
-              <div className="text-sm text-zinc-400">{t(lang, "app__your_magt")}</div>
-              <div className="mt-2 text-3xl font-semibold">
-                {yourMagt.toFixed(3)} MAGT
-              </div>
-
-              <div className="mt-2 text-xs text-zinc-400">
-                buyer: {buyerClaimableMagt.toFixed(3)} MAGT · referral:{" "}
-                {referralMagt.toFixed(3)} MAGT
-              </div>
-
-              <button
-                disabled={!claimEnabled}
-                onClick={onClaimClick}
-                className="mt-4 h-10 w-full rounded-xl border border-white/10 bg-white/5
-                         text-sm font-semibold hover:bg-white/10 disabled:opacity-60"
-                title={
-                  !addr
-                    ? t(lang, "presale_widget__9")
-                    : snapshot.isPending
-                    ? "Pending — try later"
-                    : !hasClaimable
-                    ? "Nothing to claim"
-                    : undefined
-                }
-              >
-                {t(lang, "app__claim")}
-              </button>
-            </Card>
-
-            <Card>
-              <div className="text-sm text-zinc-400">{t(lang, "app__referral_magt")}</div>
-              <div className="mt-2 text-3xl font-semibold">
-                {referralMagt.toFixed(3)} MAGT
-              </div>
-
-              <ReferralButton />
-            </Card>
-          </div>
-
-          {/* PRESALE / CALC */}
-          <div className="mt-10 grid gap-6">
-            {/* ✅ FIX: pass currentRound + refresh hook */}
-            <PresaleWidget
-              lang={lang}
-              currentRound={currentRound}
-              onTxSent={forceRefreshAfterTx}
-            />
-
-            {/* ✅ FIX: PresaleProgress no longer takes snapshot */}
-            <PresaleProgress
-              lang={lang}
-              currentRound={currentRound}
-              soldTotal={soldTotal}
-              soldInRound={soldInRound}
-            />
-
-            {/* ✅ FIX: calculator needs currentRound */}
-            <TonToMagtCalculator lang={lang} currentRound={currentRound} />
-          </div>
-
-          {/* CONTENT */}
-          <div className="mt-10 grid gap-10">
-            <TrustSection lang={lang} />
-            <Tokenomics lang={lang} />
-            <Roadmap lang={lang} />
-
-            {/* ✅ FIX: ProjectsSection expects raisedUsd */}
-            <ProjectsSection lang={lang} raisedUsd={raisedUsd} />
-
-            <FAQ lang={lang} />
-          </div>
-
-          <div className="mt-12">
-            <SiteFooter lang={lang} />
-          </div>
+          <Card className="p-4">
+            <div className="text-xs text-zinc-400">{t(lang, "app__token")}</div>
+            <div className="mt-1 text-sm font-semibold">MAGT</div>
+          </Card>
         </div>
-      </div>
+
+        {/* MAIN 2 CARDS */}
+        <div className="mt-6 grid gap-6 md:grid-cols-2">
+          <Card>
+            <div className="text-sm text-zinc-400">{t(lang, "app__your_magt")}</div>
+            <div className="mt-2 text-3xl font-semibold">{yourMagt.toFixed(3)} MAGT</div>
+
+            <div className="mt-2 text-xs text-zinc-400">
+              buyer: {buyerClaimableMagt.toFixed(3)} MAGT · referral:{" "}
+              {referralMagt.toFixed(3)} MAGT
+            </div>
+
+            <button
+              disabled={!claimEnabled}
+              onClick={onClaimClick}
+              className="mt-4 h-10 w-full rounded-xl border border-white/10 bg-white/5
+                         text-sm font-semibold hover:bg-white/10 disabled:opacity-60"
+              title={
+                !addr
+                  ? t(lang, "presale_widget__9")
+                  : snapshot.isPending
+                  ? snapshot.canCancelPending
+                    ? "Pending expired — click to resolve"
+                    : "Pending — try later"
+                  : !hasClaimable
+                  ? "Nothing to claim"
+                  : undefined
+              }
+            >
+              {snapshot.isPending && snapshot.canCancelPending
+                ? "Resolve & Claim"
+                : t(lang, "app__claim")}
+            </button>
+          </Card>
+
+          <Card>
+            <div className="text-sm text-zinc-400">{t(lang, "app__referral_magt")}</div>
+            <div className="mt-2 text-3xl font-semibold">{referralMagt.toFixed(3)} MAGT</div>
+
+            <div className="mt-4">
+              <ReferralButton lang={lang} />
+            </div>
+          </Card>
+        </div>
+
+        <div className="mt-10">
+          <PresaleProgress
+            lang={lang}
+            currentRound={currentRound}
+            soldInRound={soldInRound}
+            soldTotal={soldTotal}
+          />
+
+          {dataError && (
+            <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+              {t(lang, "app__onchain_error_prefix")} {dataError}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-10">
+          <TonToMagtCalculator lang={lang} currentRound={currentRound} />
+        </div>
+
+        <section id="buy" className="mt-10 scroll-mt-24">
+          <PresaleWidget
+            lang={lang}
+            currentRound={currentRound}
+            onTxSent={forceRefreshAfterTx}
+          />
+        </section>
+
+        <div className="mt-10">
+          <ProjectsSection lang={lang} raisedUsd={raisedUsd} />
+        </div>
+
+        <div className="mt-10">
+          <TrustSection lang={lang} />
+        </div>
+
+        <div className="mt-10">
+          <Tokenomics lang={lang} />
+        </div>
+
+        <div className="mt-10">
+          <Roadmap lang={lang} />
+        </div>
+
+        <section id="faq" className="mt-10 scroll-mt-24">
+          <FAQ lang={lang} />
+        </section>
+
+        <section id="social" className="mt-10 scroll-mt-24">
+          <SiteFooter lang={lang} />
+        </section>
+      </main>
     </div>
   );
 }
