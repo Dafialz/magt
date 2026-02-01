@@ -17,11 +17,27 @@ export function safeValidUntil(seconds: number): number {
 }
 
 /**
+ * Нормалізує введення TON (для інпутів):
+ * - дозволяє цифри, крапку, кому
+ * - перетворює кому на крапку
+ * - максимум 9 знаків після крапки.
+ */
+export function sanitizeTonInput(v: string): string {
+  const cleaned = v.replace(/,/g, ".").replace(/[^0-9.]/g, "");
+  const firstDot = cleaned.indexOf(".");
+  if (firstDot === -1) return cleaned;
+  const head = cleaned.slice(0, firstDot + 1);
+  const tail = cleaned.slice(firstDot + 1).replace(/\./g, "").slice(0, 9);
+  return head + tail;
+}
+
+/**
  * TON -> nanoTON (string)
- * Робимо через строку, щоб уникнути проблем з float (0.1 * 1e9 і т.д.).
+ * Робимо через строку, щоб уникнути проблем з float.
  */
 export function toNanoTon(ton: number | string): string {
-  const s = (typeof ton === "number" ? ton.toString() : ton).trim();
+  const raw = typeof ton === "number" ? ton.toString() : ton;
+  const s = sanitizeTonInput(String(raw).trim());
   if (!s) return "0";
 
   // allow "1", "1.", "1.23"
@@ -36,15 +52,12 @@ export function toNanoTon(ton: number | string): string {
 }
 
 /**
- * Нормалізує введення TON (для інпутів):
- * - тільки цифри і крапка
- * - максимум 9 знаків після крапки
+ * Безпечний парс TON string -> number для UI-розрахунків (estimate).
+ * НЕ використовувати для відправки транзакції.
  */
-export function sanitizeTonInput(v: string): string {
-  const cleaned = v.replace(/[^0-9.]/g, "");
-  const firstDot = cleaned.indexOf(".");
-  if (firstDot === -1) return cleaned;
-  const head = cleaned.slice(0, firstDot + 1);
-  const tail = cleaned.slice(firstDot + 1).replace(/\./g, "").slice(0, 9);
-  return head + tail;
+export function tonStringToNumber(v: string): number {
+  const s = sanitizeTonInput(v);
+  if (!s) return 0;
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }

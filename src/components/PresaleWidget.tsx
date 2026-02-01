@@ -2,8 +2,7 @@ import { useMemo, useState } from "react";
 import { useTonAddress, useTonConnectUI } from "@tonconnect/ui-react";
 import { beginCell, Address } from "@ton/core";
 import { Card } from "./Card";
-import { toNumberSafe } from "../lib/format";
-import { safeValidUntil, toNanoTon } from "../lib/ton";
+import { safeValidUntil, toNanoTon, sanitizeTonInput, tonStringToNumber } from "../lib/ton";
 import { PRESALE_CONTRACT } from "../lib/config";
 import type { LangCode } from "../lib/i18n";
 import { t } from "../lib/i18n";
@@ -52,6 +51,7 @@ export function PresaleWidget({
   const addr = useTonAddress();
   const [tonConnectUI] = useTonConnectUI();
 
+  // ✅ keep as string (never buy from number)
   const [tonAmount, setTonAmount] = useState("1");
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<TxStatus>("idle");
@@ -65,18 +65,41 @@ export function PresaleWidget({
     return buildBuyPayloadBase64(ref);
   }, [addr]);
 
-  // NOTE: this is an ESTIMATE for the current round price; final amount is calculated on-chain.
-  const ton = Math.max(0, toNumberSafe(tonAmount));
+  // ✅ normalize user input
+  const tonAmountSanitized = useMemo(() => sanitizeTonInput(tonAmount), [tonAmount]);
+
+  // ✅ for UI estimate ONLY
+  const ton = useMemo(() => tonStringToNumber(tonAmountSanitized), [tonAmountSanitized]);
+
+  // NOTE: this is an ESTIMATE for the current round price; final amount is calculated, on-chain.
   const roundPrice = getRoundPriceTon(currentRound);
   const receiveMagt = roundPrice > 0 ? ton / roundPrice : 0;
 
   async function buyWithTon() {
     if (!addr) return;
 
+    // ✅ enforce min buy based on sanitized string number
     if (ton < 1) {
       setStatus("error");
       setErrorMsg(t(lang, "buy__min_error"));
       return;
+    }
+
+    // ✅ CRITICAL: send exact nanoTON derived from STRING (not number)
+    const nano = toNanoTon(tonAmountSanitized);
+
+    // Extra safety: if conversion failed, block tx
+    if (!nano || nano === "0") {
+      setStatus("error");
+      setErrorMsg("Invalid TON amount");
+      return;
+    }
+
+    // Extra safety: protect from accidental huge amounts
+    // (You can adjust this cap; it prevents “oops, sent 1000 TON”.)
+    if (ton > 100) {
+      const ok = window.confirm(`You are about to send ${tonAmountSanitized} TON. Continue?`);
+      if (!ok) return;
     }
 
     setLoading(true);
@@ -89,7 +112,7 @@ export function PresaleWidget({
         messages: [
           {
             address: PRESALE_CONTRACT,
-            amount: toNanoTon(ton),
+            amount: nano,
             ...(payload ? { payload } : {}),
           },
         ],
@@ -114,9 +137,10 @@ export function PresaleWidget({
         <div className="mb-1 text-xs text-zinc-400">{t(lang, "buy__pay_label")}</div>
         <input
           value={tonAmount}
-          onChange={(e) => setTonAmount(e.target.value)}
+          onChange={(e) => setTonAmount(sanitizeTonInput(e.target.value))}
           className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2"
           placeholder="1"
+          inputMode="decimal"
         />
       </div>
 
@@ -129,39 +153,26 @@ export function PresaleWidget({
         Round {currentRound + 1} · price ≈ {roundPrice.toFixed(6)} TON / MAGT
       </div>
 
+      {status === "error" && errorMsg ? (
+        <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 p-2 text-xs text-red-200">
+          {errorMsg}
+        </div>
+      ) : null}
+
+      {status === "sent" ? (
+        <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-2 text-xs text-emerald-200">
+          Sent ✅
+        </div>
+      ) : null}
+
       <button
         disabled={loading}
         onClick={buyWithTon}
         className="mt-4 h-10 w-full rounded-xl border border-white/10 bg-white/5
                    hover:bg-white/10 disabled:opacity-60"
       >
-        {!addr
-          ? t(lang, "buy__btn_connect")
-          : loading
-          ? t(lang, "buy__btn_processing")
-          : t(lang, "buy__btn_buy")}
+        {loading ? t(lang, "buy__confirming") : t(lang, "buy__button")}
       </button>
-
-      {status === "confirming" && (
-        <div className="mt-3 rounded-lg bg-yellow-500/10 px-3 py-2 text-xs text-yellow-300">
-          {t(lang, "buy__status_confirming")}
-        </div>
-      )}
-
-      {status === "sent" && (
-        <div className="mt-3 rounded-lg bg-green-500/10 px-3 py-2 text-xs text-green-300">
-          {t(lang, "buy__status_sent")}
-        </div>
-      )}
-
-      {status === "error" && (
-        <div className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300">
-          {t(lang, "buy__status_failed")} {errorMsg}{" "}
-          <button onClick={() => setStatus("idle")} className="ml-1 underline">
-            {t(lang, "buy__try_again")}
-          </button>
-        </div>
-      )}
     </Card>
   );
 }
